@@ -41,7 +41,7 @@ Messages and notifications are deliberately excluded from the persisted query ca
 git clone https://github.com/Leanstix/Flow_mobile.git
 cd Flow_mobile
 cp .env.example .env
-npm ci --legacy-peer-deps
+npm ci
 npx expo prebuild --clean
 npm run android
 ```
@@ -68,7 +68,7 @@ npx expo install --check
 npm audit --omit=dev --audit-level=high
 ```
 
-The test suite covers secure session persistence, authentication state, API route contracts, normalized errors, persisted preferences, and unified feedback modal behavior.
+The dependency lock pins Expo-sensitive native packages to their SDK-compatible versions, so clean installations and EAS builds resolve the same native graph. The test suite covers secure session persistence, authentication state, API route contracts, normalized errors, persisted preferences, and unified feedback modal behavior.
 
 ## Native builds
 
