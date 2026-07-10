@@ -18,6 +18,11 @@ export const queryClient = new QueryClient({
 
 export const queryPersister = createAsyncStoragePersister({ storage: AsyncStorage, key: 'flow.query-cache.v1', throttleTime: 1000 });
 
+export async function clearAccountQueryState() {
+  queryClient.clear();
+  await queryPersister.removeClient();
+}
+
 let managersConfigured = false;
 export function configureQueryManagers() {
   if (managersConfigured) return () => undefined;
