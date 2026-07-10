@@ -9,7 +9,12 @@ import { useNotificationsSocket } from '@/hooks/use-notifications-socket';
 
 function RuntimeBridge({ children }: { children: React.ReactNode }) {
   const hydrate = useAuthStore((s) => s.hydrate);
-  useEffect(() => { void hydrate(); setSessionExpiredHandler(() => useAuthStore.setState({ session: null })); const cleanupManagers = configureQueryManagers(); return () => { setSessionExpiredHandler(null); cleanupManagers(); }; }, [hydrate]);
+  useEffect(() => {
+    void hydrate();
+    setSessionExpiredHandler(() => { void useAuthStore.getState().expireSession(); });
+    const cleanupManagers = configureQueryManagers();
+    return () => { setSessionExpiredHandler(null); cleanupManagers(); };
+  }, [hydrate]);
   useNotificationsSocket();
   return <>{children}<FeedbackModal /></>;
 }
