@@ -32,7 +32,10 @@ jobs:
         run: npm ci
 
       - name: Validate Expo dependency alignment
-        run: npx expo install --check
+        shell: bash
+        run: |
+          set -o pipefail
+          npx expo install --check 2>&1 | tee expo-install-check.log
 
       - name: Lint
         run: npm run lint
@@ -57,4 +60,5 @@ jobs:
           path: |
             coverage
             expo-config.json
+            expo-install-check.log
           if-no-files-found: ignore
