@@ -43,16 +43,15 @@ export default function ConversationScreen() {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [editing, setEditing] = useState<Message | null>(null);
   const [actionMessage, setActionMessage] = useState<Message | null>(null);
-  const messagesKey = ['messages', id] as const;
 
   const messages = useQuery({
-    queryKey: messagesKey,
+    queryKey: ['messages', id],
     queryFn: () => fetchMessages(id),
     enabled: Number.isFinite(id),
   });
 
   const updateCachedMessage = useCallback((message: Message) => {
-    client.setQueryData<Message[]>(messagesKey, (current = []) => upsertMessage(current, message));
+    client.setQueryData<Message[]>(['messages', id], (current = []) => upsertMessage(current, message));
   }, [client, id]);
 
   const onEvent = useCallback((event: ConversationSocketEvent) => {
@@ -69,7 +68,7 @@ export default function ConversationScreen() {
     }
 
     if (event.type === 'message.receipt') {
-      client.setQueryData<Message[]>(messagesKey, (current = []) => applyMessageReceipt(current, event));
+      client.setQueryData<Message[]>(['messages', id], (current = []) => applyMessageReceipt(current, event));
       return;
     }
 
@@ -81,17 +80,17 @@ export default function ConversationScreen() {
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
   }, [client, currentId, id, updateCachedMessage]);
 
-  const socket = useConversationSocket(id, onEvent);
+  const { connected, send, sendRead, sendTyping } = useConversationSocket(id, onEvent);
 
   useEffect(() => {
     if (!id) return;
     void markConversationRead(id)
       .then(() => {
-        socket.sendRead();
+        sendRead();
         return client.invalidateQueries({ queryKey: ['conversations'] });
       })
       .catch(() => undefined);
-  }, [client, id, socket.connected]);
+  }, [client, connected, id, sendRead]);
 
   useEffect(() => () => {
     if (typingTimer.current) clearTimeout(typingTimer.current);
@@ -166,7 +165,7 @@ export default function ConversationScreen() {
     setContent('');
     const replyToId = replyingTo?.id || null;
     setReplyingTo(null);
-    if (!socket.send(text, replyToId)) sendFallback.mutate({ text, replyTo: replyToId });
+    if (!send(text, replyToId)) sendFallback.mutate({ text, replyTo: replyToId });
   };
 
   const rows = Array.isArray(messages.data) ? messages.data : [];
@@ -175,8 +174,8 @@ export default function ConversationScreen() {
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={90} style={styles.root}>
       <View style={styles.status}>
-        {socket.connected ? <Wifi color={colors.success} size={15} /> : <WifiOff color={colors.warning} size={15} />}
-        <Text style={styles.statusText}>{socket.connected ? 'Realtime connected' : 'Reconnecting — REST fallback active'}</Text>
+        {connected ? <Wifi color={colors.success} size={15} /> : <WifiOff color={colors.warning} size={15} />}
+        <Text style={styles.statusText}>{connected ? 'Realtime connected' : 'Reconnecting — REST fallback active'}</Text>
       </View>
 
       <FlatList
@@ -237,7 +236,7 @@ export default function ConversationScreen() {
           multiline
           onChangeText={(value) => {
             setContent(value);
-            if (!editing) socket.sendTyping();
+            if (!editing) sendTyping();
           }}
           placeholder={editing ? 'Edit message…' : 'Write a message…'}
           placeholderTextColor={colors.muted}
