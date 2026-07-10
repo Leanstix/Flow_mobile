@@ -50,7 +50,13 @@ export async function acceptFriendRequest(id: number) { return (await api.patch(
 export async function createConversation(participants: number[]) { return (await api.post<Conversation>('/conversations/', { participants })).data; }
 export async function fetchConversations() { return (await api.get<Conversation[]>('/conversations/')).data; }
 export async function fetchMessages(id: number) { return (await api.get<Message[]>(`/conversations/${id}/messages/`)).data; }
-export async function sendMessage(id: number, content: string) { return (await api.post<Message>(`/conversations/${id}/send_message/`, { content })).data; }
+export async function sendMessage(id: number, content: string, replyTo?: number | null) {
+  const payload: { content: string; reply_to?: number } = { content };
+  if (replyTo) payload.reply_to = replyTo;
+  return (await api.post<Message>(`/conversations/${id}/send_message/`, payload)).data;
+}
+export async function editMessage(id: number, content: string) { return (await api.patch<Message>(`/messages/${id}/`, { content })).data; }
+export async function deleteMessage(id: number) { await api.delete(`/messages/${id}/`); }
 export async function markConversationRead(id: number) { return (await api.post(`/conversations/${id}/mark_read/`)).data; }
 export async function fetchNotifications() { return (await api.get<Paginated<Notification> | Notification[]>('/notifications/')).data; }
 export async function fetchUnreadNotificationCount() { return (await api.get<{ unread_count: number }>('/notifications/unread_count/')).data; }

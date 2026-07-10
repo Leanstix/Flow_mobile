@@ -26,7 +26,9 @@ import {
   createRoom,
   deleteCommunityPost,
   deleteCommunityResource,
+  deleteMessage,
   deletePost,
+  editMessage,
   fetchCommentReplies,
   fetchCommunities,
   fetchCommunity,
@@ -123,11 +125,14 @@ describe('backend contract', () => {
     expect(mockedApi.delete).toHaveBeenCalledWith('/posts/4/delete/');
   });
 
-  it('uses connection, messaging and notification routes', async () => {
-    await sendFriendRequest(8); await getFriendRequests(); await getFriends(); await acceptFriendRequest(6); await createConversation([8]); await fetchConversations(); await fetchMessages(3); await sendMessage(3, 'Realtime hello'); await markConversationRead(3); await fetchNotifications(); await fetchUnreadNotificationCount(); await markNotificationRead(5); await markAllNotificationsRead();
+  it('uses connection, message lifecycle and notification routes', async () => {
+    await sendFriendRequest(8); await getFriendRequests(); await getFriends(); await acceptFriendRequest(6); await createConversation([8]); await fetchConversations(); await fetchMessages(3); await sendMessage(3, 'Realtime hello', 14); await editMessage(22, 'Updated message'); await deleteMessage(22); await markConversationRead(3); await fetchNotifications(); await fetchUnreadNotificationCount(); await markNotificationRead(5); await markAllNotificationsRead();
     expect(mockedApi.post).toHaveBeenCalledWith('/conversations/', { participants: [8] });
     expect(mockedApi.get).toHaveBeenCalledWith('/conversations/3/messages/');
-    expect(mockedApi.post).toHaveBeenCalledWith('/conversations/3/send_message/', { content: 'Realtime hello' });
+    expect(mockedApi.post).toHaveBeenCalledWith('/conversations/3/send_message/', { content: 'Realtime hello', reply_to: 14 });
+    expect(mockedApi.patch).toHaveBeenCalledWith('/messages/22/', { content: 'Updated message' });
+    expect(mockedApi.delete).toHaveBeenCalledWith('/messages/22/');
+    expect(mockedApi.post).toHaveBeenCalledWith('/conversations/3/mark_read/');
     expect(mockedApi.get).toHaveBeenCalledWith('/notifications/');
     expect(mockedApi.post).toHaveBeenCalledWith('/notifications/mark_all_read/');
   });
