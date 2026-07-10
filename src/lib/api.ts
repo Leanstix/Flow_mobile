@@ -1,6 +1,22 @@
 import api from './http';
 import { clearSession, getSessionSync, saveSession, updateStoredUser } from './session';
-import type { Comment, Conversation, Friend, FriendRequest, Message, Notification, Paginated, Post, User } from '@/types';
+import type {
+  Comment,
+  Community,
+  CommunityMembership,
+  CommunityPost,
+  CommunityResource,
+  Conversation,
+  Friend,
+  FriendRequest,
+  MarketplaceListing,
+  MarketplaceStatus,
+  Message,
+  Notification,
+  Paginated,
+  Post,
+  User,
+} from '@/types';
 
 export const unwrapList = <T>(payload: T[] | Paginated<T> | undefined): T[] => Array.isArray(payload) ? payload : payload?.results || [];
 export async function login(email: string, password: string) { const { data } = await api.post('/login/', { email, password }); return saveSession(data); }
@@ -42,3 +58,34 @@ export async function markNotificationRead(id: number) { return (await api.post(
 export async function markAllNotificationsRead() { return (await api.post('/notifications/mark_all_read/')).data; }
 export async function createRoom() { return (await api.post<{ room_name: string }>('/call/create-room/')).data; }
 export async function joinRoom(name: string) { return (await api.post(`/call/join-room/${name}/`)).data; }
+
+export type CommunityFilters = { q?: string; category?: string; course_code?: string; mine?: boolean };
+export async function fetchCommunities(params: CommunityFilters = {}) { return (await api.get<Paginated<Community> | Community[]>('/groups/', { params })).data; }
+export async function fetchCommunity(slug: string) { return (await api.get<Community>(`/groups/${slug}/`)).data; }
+export async function createCommunity(payload: Partial<Community>) { return (await api.post<Community>('/groups/', payload)).data; }
+export async function joinCommunity(slug: string) { return (await api.post<{ detail: string; status: string }>(`/groups/${slug}/join/`)).data; }
+export async function leaveCommunity(slug: string) { return (await api.post(`/groups/${slug}/leave/`)).data; }
+export async function fetchCommunityMembers(slug: string) { return (await api.get<CommunityMembership[]>(`/groups/${slug}/members/`)).data; }
+export async function approveCommunityMember(slug: string, membershipId: number) { return (await api.post<CommunityMembership>(`/groups/${slug}/members/${membershipId}/approve/`)).data; }
+export async function updateCommunityMemberRole(slug: string, membershipId: number, role: 'member' | 'moderator') { return (await api.patch<CommunityMembership>(`/groups/${slug}/members/${membershipId}/role/`, { role })).data; }
+export async function fetchCommunityPosts(slug: string) { return (await api.get<CommunityPost[]>('/groups/posts/', { params: { community: slug } })).data; }
+export async function createCommunityPost(payload: { community: number; content: string; attachment_url?: string }) { return (await api.post<CommunityPost>('/groups/posts/', payload)).data; }
+export async function toggleCommunityPostPin(id: number) { return (await api.post<CommunityPost>(`/groups/posts/${id}/toggle_pin/`)).data; }
+export async function deleteCommunityPost(id: number) { return (await api.delete(`/groups/posts/${id}/`)).data; }
+export async function fetchCommunityResources(slug: string) { return (await api.get<CommunityResource[]>('/groups/resources/', { params: { community: slug } })).data; }
+export async function createCommunityResource(payload: { community: number; title: string; description?: string; url: string }) { return (await api.post<CommunityResource>('/groups/resources/', payload)).data; }
+export async function toggleCommunityResourcePin(id: number) { return (await api.post<CommunityResource>(`/groups/resources/${id}/toggle_pin/`)).data; }
+export async function deleteCommunityResource(id: number) { return (await api.delete(`/groups/resources/${id}/`)).data; }
+
+export type MarketplaceFilters = { q?: string; category?: string; condition?: string; status?: string; min_price?: string; max_price?: string; ordering?: string };
+export async function fetchMarketplaceListings(params: MarketplaceFilters = {}) { return (await api.get<Paginated<MarketplaceListing> | MarketplaceListing[]>('/marketplace/listings/', { params })).data; }
+export async function fetchMarketplaceListing(id: number | string) { return (await api.get<MarketplaceListing>(`/marketplace/listings/${id}/`)).data; }
+export async function fetchMyMarketplaceListings() { return (await api.get<Paginated<MarketplaceListing> | MarketplaceListing[]>('/marketplace/listings/mine/')).data; }
+export async function fetchSavedMarketplaceListings() { return (await api.get<Paginated<MarketplaceListing> | MarketplaceListing[]>('/marketplace/listings/saved/')).data; }
+export async function createMarketplaceListing(form: FormData) { return (await api.post<MarketplaceListing>('/marketplace/listings/', form)).data; }
+export async function updateMarketplaceListing(id: number, payload: Partial<MarketplaceListing> | FormData) { return (await api.patch<MarketplaceListing>(`/marketplace/listings/${id}/`, payload)).data; }
+export async function archiveMarketplaceListing(id: number) { return (await api.delete(`/marketplace/listings/${id}/`)).data; }
+export async function saveMarketplaceListing(id: number) { return (await api.post<{ saved: boolean }>(`/marketplace/listings/${id}/save_listing/`)).data; }
+export async function unsaveMarketplaceListing(id: number) { return (await api.delete(`/marketplace/listings/${id}/unsave/`)).data; }
+export async function reportMarketplaceListing(id: number, reason: string) { return (await api.post(`/marketplace/listings/${id}/report/`, { reason })).data; }
+export async function setMarketplaceListingStatus(id: number, status: MarketplaceStatus) { return (await api.post<MarketplaceListing>(`/marketplace/listings/${id}/set_status/`, { status })).data; }
