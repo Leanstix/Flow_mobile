@@ -15,14 +15,31 @@ import {
   acceptFriendRequest,
   activateAccount,
   addComment,
+  approveCommunityMember,
+  archiveMarketplaceListing,
+  createCommunity,
+  createCommunityPost,
+  createCommunityResource,
   createConversation,
+  createMarketplaceListing,
   createPost,
   createRoom,
+  deleteCommunityPost,
+  deleteCommunityResource,
   deletePost,
   fetchCommentReplies,
+  fetchCommunities,
+  fetchCommunity,
+  fetchCommunityMembers,
+  fetchCommunityPosts,
+  fetchCommunityResources,
   fetchConversations,
+  fetchMarketplaceListing,
+  fetchMarketplaceListings,
   fetchMessages,
+  fetchMyMarketplaceListings,
   fetchNotifications,
+  fetchSavedMarketplaceListings,
   fetchUnreadNotificationCount,
   getFeedPosts,
   getFriendRequests,
@@ -30,7 +47,9 @@ import {
   getFriendsFeed,
   getPosts,
   getUserProfile,
+  joinCommunity,
   joinRoom,
+  leaveCommunity,
   login,
   logout,
   markAllNotificationsRead,
@@ -38,15 +57,23 @@ import {
   markNotificationRead,
   passwordChange,
   replyToComment,
+  reportMarketplaceListing,
   reportPost,
   repost,
+  saveMarketplaceListing,
   searchPosts,
   searchUsers,
   sendFriendRequest,
   sendMessage,
+  setMarketplaceListingStatus,
   signUp,
+  toggleCommunityPostPin,
+  toggleCommunityResourcePin,
   toggleLike,
+  unsaveMarketplaceListing,
   unwrapList,
+  updateCommunityMemberRole,
+  updateMarketplaceListing,
   updateUserProfile,
   uploadProfilePicture,
 } from '@/lib/api';
@@ -89,20 +116,7 @@ describe('backend contract', () => {
   });
 
   it('uses post, comment and search routes', async () => {
-    await getFeedPosts(2);
-    await getFriendsFeed();
-    await getPosts();
-    await createPost('Campus update');
-    await deletePost(4);
-    await toggleLike(4);
-    await repost(4, 'Sharing');
-    await reportPost(4, 'Unsafe');
-    await addComment(4, 'hello');
-    await fetchCommentReplies(9);
-    await replyToComment(9, 'reply');
-    await searchUsers('Ada');
-    await searchPosts('systems');
-
+    await getFeedPosts(2); await getFriendsFeed(); await getPosts(); await createPost('Campus update'); await deletePost(4); await toggleLike(4); await repost(4, 'Sharing'); await reportPost(4, 'Unsafe'); await addComment(4, 'hello'); await fetchCommentReplies(9); await replyToComment(9, 'reply'); await searchUsers('Ada'); await searchPosts('systems');
     expect(mockedApi.get).toHaveBeenCalledWith('/posts/all-feed/', { params: { page: 2, limit: 10 } });
     expect(mockedApi.post).toHaveBeenCalledWith('/posts/4/comment/', { content: 'hello' });
     expect(mockedApi.post).toHaveBeenCalledWith('/posts/comments/9/reply/', { content: 'reply' });
@@ -110,20 +124,7 @@ describe('backend contract', () => {
   });
 
   it('uses connection, messaging and notification routes', async () => {
-    await sendFriendRequest(8);
-    await getFriendRequests();
-    await getFriends();
-    await acceptFriendRequest(6);
-    await createConversation([8]);
-    await fetchConversations();
-    await fetchMessages(3);
-    await sendMessage(3, 'Realtime hello');
-    await markConversationRead(3);
-    await fetchNotifications();
-    await fetchUnreadNotificationCount();
-    await markNotificationRead(5);
-    await markAllNotificationsRead();
-
+    await sendFriendRequest(8); await getFriendRequests(); await getFriends(); await acceptFriendRequest(6); await createConversation([8]); await fetchConversations(); await fetchMessages(3); await sendMessage(3, 'Realtime hello'); await markConversationRead(3); await fetchNotifications(); await fetchUnreadNotificationCount(); await markNotificationRead(5); await markAllNotificationsRead();
     expect(mockedApi.post).toHaveBeenCalledWith('/conversations/', { participants: [8] });
     expect(mockedApi.get).toHaveBeenCalledWith('/conversations/3/messages/');
     expect(mockedApi.post).toHaveBeenCalledWith('/conversations/3/send_message/', { content: 'Realtime hello' });
@@ -131,9 +132,30 @@ describe('backend contract', () => {
     expect(mockedApi.post).toHaveBeenCalledWith('/notifications/mark_all_read/');
   });
 
+  it('uses the production Groups contract', async () => {
+    const payload = { name: 'Systems Club', description: 'A systems community', category: 'club' as const, visibility: 'public' as const };
+    await fetchCommunities({ q: 'systems', mine: true }); await fetchCommunity('systems-club'); await createCommunity(payload); await joinCommunity('systems-club'); await leaveCommunity('systems-club'); await fetchCommunityMembers('systems-club'); await approveCommunityMember('systems-club', 12); await updateCommunityMemberRole('systems-club', 12, 'moderator'); await fetchCommunityPosts('systems-club'); await createCommunityPost({ community: 2, content: 'Hello members' }); await toggleCommunityPostPin(9); await deleteCommunityPost(9); await fetchCommunityResources('systems-club'); await createCommunityResource({ community: 2, title: 'Notes', url: 'https://example.com' }); await toggleCommunityResourcePin(3); await deleteCommunityResource(3);
+    expect(mockedApi.get).toHaveBeenCalledWith('/groups/', { params: { q: 'systems', mine: true } });
+    expect(mockedApi.post).toHaveBeenCalledWith('/groups/systems-club/join/');
+    expect(mockedApi.post).toHaveBeenCalledWith('/groups/systems-club/members/12/approve/');
+    expect(mockedApi.get).toHaveBeenCalledWith('/groups/posts/', { params: { community: 'systems-club' } });
+    expect(mockedApi.post).toHaveBeenCalledWith('/groups/resources/', { community: 2, title: 'Notes', url: 'https://example.com' });
+  });
+
+  it('uses the production Marketplace contract', async () => {
+    const form = new FormData();
+    await fetchMarketplaceListings({ q: 'laptop', category: 'electronics' }); await fetchMarketplaceListing(7); await fetchMyMarketplaceListings(); await fetchSavedMarketplaceListings(); await createMarketplaceListing(form); await updateMarketplaceListing(7, { title: 'Updated laptop' }); await saveMarketplaceListing(7); await unsaveMarketplaceListing(7); await reportMarketplaceListing(7, 'This appears fraudulent'); await setMarketplaceListingStatus(7, 'sold'); await archiveMarketplaceListing(7);
+    expect(mockedApi.get).toHaveBeenCalledWith('/marketplace/listings/', { params: { q: 'laptop', category: 'electronics' } });
+    expect(mockedApi.get).toHaveBeenCalledWith('/marketplace/listings/mine/');
+    expect(mockedApi.post).toHaveBeenCalledWith('/marketplace/listings/', form);
+    expect(mockedApi.post).toHaveBeenCalledWith('/marketplace/listings/7/save_listing/');
+    expect(mockedApi.post).toHaveBeenCalledWith('/marketplace/listings/7/report/', { reason: 'This appears fraudulent' });
+    expect(mockedApi.post).toHaveBeenCalledWith('/marketplace/listings/7/set_status/', { status: 'sold' });
+    expect(mockedApi.delete).toHaveBeenCalledWith('/marketplace/listings/7/');
+  });
+
   it('uses call-room routes', async () => {
-    await createRoom();
-    await joinRoom('room-code');
+    await createRoom(); await joinRoom('room-code');
     expect(mockedApi.post).toHaveBeenCalledWith('/call/create-room/');
     expect(mockedApi.post).toHaveBeenCalledWith('/call/join-room/room-code/');
   });
