@@ -1,0 +1,60 @@
+name: Mobile CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: mobile-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      CI: "1"
+      EXPO_NO_TELEMETRY: "1"
+      EXPO_PUBLIC_API_URL: http://127.0.0.1:8000/api
+      EXPO_PUBLIC_WS_URL: ws://127.0.0.1:8000
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22.13.1"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate Expo dependency alignment
+        run: npx expo install --check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Run tests with coverage
+        run: npm run test:coverage
+
+      - name: Validate Expo configuration
+        run: npx expo config --type public > expo-config.json
+
+      - name: Audit production dependency severity
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-ci-diagnostics
+          path: |
+            coverage
+            expo-config.json
+          if-no-files-found: ignore

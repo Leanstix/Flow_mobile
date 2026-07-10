@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "Flow",
+    "slug": "flow-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "flow",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "runtimeVersion": { "policy": "appVersion" },
+    "updates": { "fallbackToCacheTimeout": 0 },
+    "icon": "./assets/images/icon.png",
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0B1437"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.leanstix.flow",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Flow uses your camera for video calls and profile media.",
+        "NSMicrophoneUsageDescription": "Flow uses your microphone for audio and video calls.",
+        "NSPhotoLibraryUsageDescription": "Flow uses your photo library for profile media."
+      }
+    },
+    "android": {
+      "package": "com.leanstix.flow",
+      "permissions": ["CAMERA", "RECORD_AUDIO"],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundColor": "#0B1437"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-image-picker",
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "Allow Flow to use your camera for video calls.",
+          "microphonePermission": "Allow Flow to use your microphone for calls."
+        }
+      ]
+    ],
+    "experiments": { "typedRoutes": true }
+  }
+}

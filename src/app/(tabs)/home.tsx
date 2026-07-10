@@ -1,0 +1,28 @@
+import React, { useState } from 'react';
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Send } from 'lucide-react-native';
+import { createPost, getFeedPosts, getFriendsFeed } from '@/lib/api';
+import { PostCard } from '@/components/post-card';
+import { Avatar } from '@/components/avatar';
+import { Card } from '@/components/ui';
+import { colors, spacing } from '@/theme';
+import { useAuthStore } from '@/state/auth-store';
+import { showApiError, showSuccess } from '@/state/ui-store';
+import type { Post } from '@/types';
+
+export default function HomeScreen() {
+  const user = useAuthStore((s) => s.session?.user);
+  const [content, setContent] = useState('');
+  const [mode, setMode] = useState<'campus' | 'following'>('campus');
+  const queryClient = useQueryClient();
+  const feed = useInfiniteQuery({ queryKey: ['feed', 'all'], queryFn: ({ pageParam }) => getFeedPosts(pageParam), initialPageParam: 1, getNextPageParam: (last, all) => last.next ? all.length + 1 : undefined, enabled: mode === 'campus' });
+  const following = useQuery({ queryKey: ['feed', 'following'], queryFn: getFriendsFeed, enabled: mode === 'following' });
+  const create = useMutation({ mutationFn: createPost, onSuccess: () => { setContent(''); queryClient.invalidateQueries({ queryKey: ['feed'] }); showSuccess('Published', 'Your post is live on Flow.'); }, onError: (e) => showApiError(e, 'Could not publish') });
+  const posts = mode === 'campus' ? feed.data?.pages.flatMap((page) => page.results) || [] : Array.isArray(following.data) ? following.data : [];
+  const refreshing = mode === 'campus' ? feed.isRefetching : following.isRefetching;
+  const refresh = () => mode === 'campus' ? feed.refetch() : following.refetch();
+  const header = <View style={styles.headerWrap}><View><Text style={styles.eyebrow}>CAMPUS FEED</Text><Text style={styles.title}>Good to see you, {user?.first_name || user?.user_name || 'student'}</Text><Text style={styles.subtitle}>See what your university community is discussing.</Text></View><View style={styles.feedSwitch}><Pressable onPress={() => setMode('campus')} style={[styles.feedOption, mode === 'campus' && styles.activeFeedOption]}><Text style={[styles.feedOptionText, mode === 'campus' && styles.activeFeedOptionText]}>Campus</Text></Pressable><Pressable onPress={() => setMode('following')} style={[styles.feedOption, mode === 'following' && styles.activeFeedOption]}><Text style={[styles.feedOptionText, mode === 'following' && styles.activeFeedOptionText]}>Following</Text></Pressable></View><Card style={styles.composer}><View style={styles.composerRow}><Avatar user={user} /><TextInput multiline maxLength={1000} onChangeText={setContent} placeholder="Share an update, idea or question…" placeholderTextColor={colors.muted} style={styles.input} value={content} /></View><View style={styles.composerFooter}><Text style={styles.counter}>{content.length}/1000</Text><Pressable accessibilityRole="button" disabled={!content.trim() || create.isPending} onPress={() => create.mutate(content.trim())} style={[styles.publish, (!content.trim() || create.isPending) && { opacity: .45 }]}><Send color="#fff" size={17} /><Text style={styles.publishText}>{create.isPending ? 'Posting…' : 'Post'}</Text></Pressable></View></Card></View>;
+  return <FlatList contentContainerStyle={styles.list} data={posts} keyExtractor={(item) => String(item.id)} ListHeaderComponent={header} onEndReached={() => { if (mode === 'campus' && feed.hasNextPage && !feed.isFetchingNextPage) feed.fetchNextPage(); }} onEndReachedThreshold={.5} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.primary} />} renderItem={({ item }: { item: Post }) => <PostCard post={item} />} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} ListEmptyComponent={!(mode === 'campus' ? feed.isLoading : following.isLoading) ? <Card><Text style={styles.emptyTitle}>{mode === 'following' ? 'Your following feed is quiet' : 'No posts yet'}</Text><Text style={styles.subtitle}>{mode === 'following' ? 'Connect with students from Explore to build this feed.' : 'Start the first campus conversation.'}</Text></Card> : null} />;
+}
+const styles = StyleSheet.create({ list: { padding: spacing.lg, paddingBottom: 40 }, headerWrap: { gap: 18, marginBottom: 14 }, eyebrow: { color: colors.primary, fontWeight: '900', fontSize: 12, letterSpacing: 1.5 }, title: { color: colors.text, fontWeight: '900', fontSize: 26, lineHeight: 32, marginTop: 5 }, subtitle: { color: colors.muted, lineHeight: 21, marginTop: 5 }, feedSwitch: { flexDirection: 'row', backgroundColor: '#E9EDF7', borderRadius: 15, padding: 4 }, feedOption: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 12 }, activeFeedOption: { backgroundColor: '#fff' }, feedOptionText: { color: colors.muted, fontWeight: '800' }, activeFeedOptionText: { color: colors.primary }, composer: { gap: 14 }, composerRow: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' }, input: { flex: 1, minHeight: 76, color: colors.text, fontSize: 15, lineHeight: 22, textAlignVertical: 'top' }, composerFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, counter: { color: colors.muted, fontSize: 12 }, publish: { flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: colors.primary, borderRadius: 13, paddingHorizontal: 17, minHeight: 42 }, publishText: { color: '#fff', fontWeight: '800' }, emptyTitle: { color: colors.text, fontWeight: '900', fontSize: 18 } });
