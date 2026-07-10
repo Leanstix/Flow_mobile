@@ -31,7 +31,38 @@ export type Post = {
   reposted_from?: Post | null;
 };
 export type Comment = { id: number; post: number; parent?: number | null; user: User; content: string; created_at: string; replies_count: number };
-export type Message = { id: number; conversation: number; sender: User; content: string; timestamp: string; is_read: boolean };
+export type MessageStatus = 'sent' | 'delivered' | 'read';
+export type MessageReplyPreview = {
+  id: number;
+  sender: User;
+  content: string;
+  is_deleted: boolean;
+};
+export type Message = {
+  id: number;
+  conversation: number;
+  sender: User;
+  content: string;
+  timestamp: string;
+  reply_to?: number | null;
+  reply_preview?: MessageReplyPreview | null;
+  edited_at?: string | null;
+  deleted_at?: string | null;
+  is_deleted?: boolean;
+  status?: MessageStatus;
+  recipient_count?: number;
+  delivered_count?: number;
+  read_count?: number;
+  is_read: boolean;
+};
+export type MessageReceiptPayload = {
+  message_id: number;
+  status: MessageStatus;
+  recipient_count: number;
+  delivered_count: number;
+  read_count: number;
+  is_read: boolean;
+};
 export type FriendRequest = { id: number; from_user: User; to_user: User; timestamp: string; accepted: boolean };
 export type Friend = User & { conversation_id?: number | null };
 export type Conversation = { id: number; participants: User[]; created_at: string; name: string; last_message?: Message | null; unread_count: number };
