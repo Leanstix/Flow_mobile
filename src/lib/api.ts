@@ -14,12 +14,15 @@ import type {
   MarketplaceListing,
   MarketplaceStatus,
   Message,
+  MessageAttachmentKind,
   Notification,
   Paginated,
   Post,
   User,
 } from '@/types';
 
+export type NativeUpload = { uri: string; name: string; type: string };
+export type PostMediaMetadata = { duration_seconds?: number; trim_start_seconds?: number; trim_end_seconds?: number };
 export const unwrapList = <T>(payload: T[] | Paginated<T> | undefined): T[] => Array.isArray(payload) ? payload : payload?.results || [];
 export async function login(email: string, password: string) { const { data } = await api.post('/login/', { email, password }); return saveSession(data); }
 export async function logout() { const refresh = getSessionSync()?.refresh; try { if (refresh) await api.post('/login/logout/', { refresh }); } finally { await clearSession(); } }
@@ -35,15 +38,25 @@ export async function getFeedPosts(page = 1) { return (await api.get<Paginated<P
 export async function getFriendsFeed() { return (await api.get<Post[]>('/posts/feed/')).data; }
 export async function getPosts() { return (await api.get<Post[]>('/posts/')).data; }
 export async function createPost(content: string) { return (await api.post<Post>('/posts/', { content })).data; }
+export async function createPostWithMedia(content: string, files: NativeUpload[], metadata: PostMediaMetadata[] = []) {
+  const form = new FormData();
+  form.append('content', content);
+  form.append('platform', 'mobile');
+  files.forEach((file) => form.append('media', file as any));
+  if (metadata.length) form.append('media_metadata', JSON.stringify(metadata));
+  return (await api.post<Post>('/posts/', form)).data;
+}
 export async function deletePost(id: number) { return (await api.delete(`/posts/${id}/delete/`)).data; }
 export async function toggleLike(id: number) { return (await api.post<{ liked: boolean; likes_count: number }>(`/posts/${id}/like/`)).data; }
 export async function repost(id: number, content = '') { return (await api.post<Post>(`/posts/${id}/repost/`, content ? { content } : {})).data; }
 export async function reportPost(id: number, reason: string) { return (await api.post(`/posts/${id}/report/`, { reason })).data; }
-export async function fetchComments(id: number, page = 1) { return (await api.get<Paginated<Comment>>(`/posts/${id}/comments/`, { params: { page, limit: 20 } })).data; }
+export async function fetchComments(id: number, page = 1) { return (await api.get<Paginated<Comment>>(`/posts/${id}/comments/`, { params: { page, limit: 30 } })).data; }
 export async function addComment(id: number, content: string) { return (await api.post<Comment>(`/posts/${id}/comment/`, { content })).data; }
-export async function fetchCommentReplies(id: number) { return (await api.get<Paginated<Comment>>(`/posts/comments/${id}/replies/`)).data; }
+export async function fetchCommentReplies(id: number) { return (await api.get<Paginated<Comment>>(`/posts/comments/${id}/replies/`, { params: { limit: 100 } })).data; }
 export async function replyToComment(id: number, content: string) { return (await api.post<Comment>(`/posts/comments/${id}/reply/`, { content })).data; }
-export async function searchUsers(q: string) { return (await api.get<User[]>('/requests/search/', { params: { q } })).data; }
+export async function searchHashtags(q = '') { return (await api.get<{ name: string; posts_count: number }[]>('/posts/hashtags/', { params: { q: q.replace(/^#/, '') } })).data; }
+export async function fetchHashtagPosts(tag: string, page = 1) { return (await api.get<Paginated<Post>>(`/posts/hashtags/${encodeURIComponent(tag.replace(/^#/, ''))}/`, { params: { page, limit: 10 } })).data; }
+export async function searchUsers(q: string) { return (await api.get<User[]>('/requests/search/', { params: { q: q.replace(/^@/, '') } })).data; }
 export async function searchPosts(q: string) { return (await api.get<Paginated<Post>>('/posts/search/not-by-user/', { params: { q } })).data; }
 export async function sendFriendRequest(to_user_id: number) { return (await api.post('/requests/friend-requests/', { to_user_id })).data; }
 export async function getFriendRequests() { return (await api.get<FriendRequest[]>('/requests/friend-requests/')).data; }
@@ -52,10 +65,16 @@ export async function acceptFriendRequest(id: number) { return (await api.patch(
 export async function createConversation(participants: number[]) { return (await api.post<Conversation>('/conversations/', { participants })).data; }
 export async function fetchConversations() { return (await api.get<Conversation[]>('/conversations/')).data; }
 export async function fetchMessages(id: number) { return (await api.get<Message[]>(`/conversations/${id}/messages/`)).data; }
-export async function sendMessage(id: number, content: string, replyTo?: number | null) {
-  const payload: { content: string; reply_to?: number } = { content };
-  if (replyTo) payload.reply_to = replyTo;
-  return (await api.post<Message>(`/conversations/${id}/send_message/`, payload)).data;
+export async function sendMessage(id: number, content: string, replyTo?: number | null) { const payload: { content: string; reply_to?: number } = { content }; if (replyTo) payload.reply_to = replyTo; return (await api.post<Message>(`/conversations/${id}/send_message/`, payload)).data; }
+export async function sendMessageAttachment(params: { conversationId: number; content?: string; replyTo?: number | null; kind: MessageAttachmentKind; files?: NativeUpload[]; payload?: Record<string, any>; durationSeconds?: number }) {
+  const form = new FormData();
+  form.append('content', params.content || '');
+  form.append('attachment_type', params.kind);
+  if (params.replyTo) form.append('reply_to', String(params.replyTo));
+  if (params.payload) form.append('attachment_payload', JSON.stringify(params.payload));
+  if (params.durationSeconds) form.append('attachment_duration_seconds', String(params.durationSeconds));
+  (params.files || []).forEach((file) => form.append('files', file as any));
+  return (await api.post<Message>(`/conversations/${params.conversationId}/send_message/`, form)).data;
 }
 export async function editMessage(id: number, content: string) { return (await api.patch<Message>(`/messages/${id}/`, { content })).data; }
 export async function deleteMessage(id: number) { await api.delete(`/messages/${id}/`); }
@@ -67,13 +86,7 @@ export async function markAllNotificationsRead() { return (await api.post('/noti
 
 export async function createRoom(callType: CallType = 'video') { return (await api.post<CallSession>('/call/create-room/', { call_type: callType })).data; }
 export async function joinRoom(name: string) { return (await api.post<CallSession>(`/call/join-room/${name}/`)).data; }
-export async function startDirectCall(recipientId: number, conversationId: number, callType: CallType) {
-  return (await api.post<CallSession>('/call/direct/', {
-    recipient_id: recipientId,
-    conversation_id: conversationId,
-    call_type: callType,
-  })).data;
-}
+export async function startDirectCall(recipientId: number, conversationId: number, callType: CallType) { return (await api.post<CallSession>('/call/direct/', { recipient_id: recipientId, conversation_id: conversationId, call_type: callType })).data; }
 export async function fetchIncomingCalls() { return (await api.get<CallSession[]>('/call/incoming/')).data; }
 export async function fetchCall(roomName: string) { return (await api.get<CallSession>(`/call/${roomName}/`)).data; }
 export async function acceptCall(roomName: string) { return (await api.post<CallSession>(`/call/${roomName}/accept/`)).data; }
@@ -111,3 +124,4 @@ export async function saveMarketplaceListing(id: number) { return (await api.pos
 export async function unsaveMarketplaceListing(id: number) { return (await api.delete(`/marketplace/listings/${id}/unsave/`)).data; }
 export async function reportMarketplaceListing(id: number, reason: string) { return (await api.post(`/marketplace/listings/${id}/report/`, { reason })).data; }
 export async function setMarketplaceListingStatus(id: number, status: MarketplaceStatus) { return (await api.post<MarketplaceListing>(`/marketplace/listings/${id}/set_status/`, { status })).data; }
+export async function contactMarketplaceSeller(id: number, message = '') { return (await api.post<{ conversation: Conversation; message: Message }>(`/marketplace/listings/${id}/contact_seller/`, { message })).data; }

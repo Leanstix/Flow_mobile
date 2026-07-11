@@ -2,17 +2,17 @@ import React, { useMemo, useState } from 'react';
 import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bookmark, Flag, MapPin, MessageCircle, ShoppingBag, Trash2, X } from 'lucide-react-native';
+import { Bookmark, Flag, MapPin, MessageCircle, ShoppingBag, X } from 'lucide-react-native';
+
 import { Avatar } from '@/components/avatar';
 import { CachedImage } from '@/components/media';
 import { Button, Card, Field } from '@/components/ui';
 import {
   archiveMarketplaceListing,
-  createConversation,
+  contactMarketplaceSeller,
   fetchMarketplaceListing,
   reportMarketplaceListing,
   saveMarketplaceListing,
-  sendMessage,
   setMarketplaceListingStatus,
   unsaveMarketplaceListing,
 } from '@/lib/api';
@@ -37,13 +37,13 @@ export default function MarketplaceDetailScreen() {
   const statusMutation = useMutation({ mutationFn: (status: MarketplaceStatus) => setMarketplaceListingStatus(id, status), onSuccess: () => { invalidate(); showSuccess('Status updated', 'Buyers will see the latest listing status.'); }, onError: (error) => showApiError(error, 'Could not update listing') });
   const archiveMutation = useMutation({ mutationFn: () => archiveMarketplaceListing(id), onSuccess: () => { invalidate(); showSuccess('Listing archived', 'The listing is no longer publicly visible.'); router.back(); }, onError: (error) => showApiError(error, 'Could not archive listing') });
   const contactMutation = useMutation({
-    mutationFn: async () => {
-      if (!listing?.seller.id) throw new Error('Seller account is unavailable.');
-      const conversation = await createConversation([listing.seller.id]);
-      if (message.trim()) await sendMessage(conversation.id, message.trim());
-      return conversation;
+    mutationFn: () => contactMarketplaceSeller(id, message.trim()),
+    onSuccess: ({ conversation }) => {
+      setMessage('');
+      setMessageOpen(false);
+      client.invalidateQueries({ queryKey: ['conversations'] });
+      router.push({ pathname: '/conversation/[id]', params: { id: String(conversation.id), name: conversation.name } });
     },
-    onSuccess: (conversation) => { setMessage(''); setMessageOpen(false); router.push({ pathname: '/conversation/[id]', params: { id: String(conversation.id) } }); },
     onError: (error) => showApiError(error, 'Could not contact seller'),
   });
   const images = useMemo(() => listing ? [...(listing.images || []).map((item) => item.image), ...(listing.image && !(listing.images || []).some((item) => item.image === listing.image) ? [listing.image] : [])] : [], [listing]);
@@ -56,7 +56,7 @@ export default function MarketplaceDetailScreen() {
     <Card><Text style={styles.sectionTitle}>Description</Text><Text style={styles.description}>{listing.description}</Text></Card>
     <Card style={styles.sellerCard}><Avatar user={listing.seller} size={52} /><View style={{ flex: 1 }}><Text style={styles.sellerName}>{listing.seller.user_name || listing.seller.first_name || listing.seller.email}</Text><Text style={styles.muted}>{listing.seller.department || 'Flow student seller'}</Text></View>{!listing.is_owner ? <Pressable onPress={() => setMessageOpen(true)} style={styles.messageButton}><MessageCircle color="#fff" size={18} /></Pressable> : null}</Card>
     {listing.is_owner ? <Card style={styles.ownerControls}><Text style={styles.sectionTitle}>Manage listing</Text><Text style={styles.muted}>Keep the status accurate so buyers know whether this item is available.</Text><View style={styles.statusGrid}>{(['active', 'reserved', 'sold'] as MarketplaceStatus[]).map((status) => <Pressable key={status} disabled={statusMutation.isPending} onPress={() => statusMutation.mutate(status)} style={[styles.statusChoice, listing.status === status && styles.statusChoiceActive]}><Text style={[styles.statusText, listing.status === status && styles.statusTextActive]}>{status}</Text></Pressable>)}</View><Button onPress={() => showConfirm('Archive listing?', 'This removes it from public marketplace results.', () => archiveMutation.mutate())} title="Archive listing" variant="danger" /></Card> : <View style={styles.buyerActions}><Button onPress={() => setMessageOpen(true)} title="Message seller" /><Button onPress={() => setReportOpen(true)} title="Report listing" variant="secondary" /></View>}
-    <ActionModal open={messageOpen} onClose={() => setMessageOpen(false)} title="Message seller"><Text style={styles.muted}>A private Flow conversation will be created with the seller.</Text><Field label="Message (optional)" maxLength={1000} multiline onChangeText={setMessage} placeholder={`Hi, is ${listing.title} still available?`} style={styles.multiline} value={message} /><Button loading={contactMutation.isPending} onPress={() => contactMutation.mutate()} title="Open conversation" /></ActionModal>
+    <ActionModal open={messageOpen} onClose={() => setMessageOpen(false)} title="Message seller"><Text style={styles.muted}>The first message automatically includes this item, its image, price, and a direct listing link.</Text><Field label="Message (optional)" maxLength={1000} multiline onChangeText={setMessage} placeholder={`Hi, is ${listing.title} still available?`} style={styles.multiline} value={message} /><Button loading={contactMutation.isPending} onPress={() => contactMutation.mutate()} title="Send enquiry" /></ActionModal>
     <ActionModal open={reportOpen} onClose={() => setReportOpen(false)} title="Report listing"><Text style={styles.muted}>Reports are private and visible only to moderation staff.</Text><Field label="Reason" maxLength={1000} multiline onChangeText={setReason} placeholder="Explain why this listing should be reviewed" style={styles.multiline} value={reason} /><Button disabled={reason.trim().length < 10} loading={reportMutation.isPending} onPress={() => reportMutation.mutate()} title="Submit report" variant="danger" /></ActionModal>
   </ScrollView>;
 }

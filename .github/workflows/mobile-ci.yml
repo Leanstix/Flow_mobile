@@ -41,7 +41,10 @@ jobs:
         run: node scripts/generate-native-assets.mjs
 
       - name: Lint
-        run: npm run lint
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run lint 2>&1 | tee lint.log
 
       - name: Type check
         shell: bash
@@ -78,5 +81,6 @@ jobs:
             expo-config.json
             expo-install-check.log
             expo-prebuild.log
+            lint.log
             typecheck.log
           if-no-files-found: ignore

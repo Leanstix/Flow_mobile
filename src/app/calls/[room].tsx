@@ -10,9 +10,11 @@ import {
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
-import { Camera, CameraOff, Mic, MicOff, PhoneOff, RefreshCw, UserPlus, X } from 'lucide-react-native';
+import { Camera, CameraOff, Mic, MicOff, PhoneOff, RefreshCw, Signal, UserPlus, X } from 'lucide-react-native';
 import { mediaDevices, MediaStream, RTCPeerConnection, RTCIceCandidate, RTCSessionDescription, RTCView } from 'react-native-webrtc';
+
 import { fetchCall, getFriends, inviteCallParticipants, leaveCall } from '@/lib/api';
+import { applyCallQuality, LOW_BANDWIDTH_VIDEO_CONSTRAINTS, networkSample, optimizeSdp, qualityFromMetrics, type CallQuality } from '@/lib/call-quality';
 import { buildWebSocketUrl } from '@/lib/socket';
 import { useAuthStore } from '@/state/auth-store';
 import { colors } from '@/theme';
@@ -33,6 +35,10 @@ function displayName(user?: User | null) {
   return user?.user_name || user?.email || 'Flow user';
 }
 
+function optimizedDescription(description: any) {
+  return new RTCSessionDescription({ type: description.type, sdp: optimizeSdp(description.sdp || '') });
+}
+
 export default function CallRoomScreen() {
   const { room, callType: routeCallType, name } = useLocalSearchParams<{ room: string; callType?: 'audio' | 'video'; name?: string }>();
   const access = useAuthStore((state) => state.session?.access);
@@ -43,14 +49,18 @@ export default function CallRoomScreen() {
   const peers = useRef<Map<number, RTCPeerConnection>>(new Map());
   const pendingCandidates = useRef<Map<number, RTCIceCandidate[]>>(new Map());
   const offeredPeers = useRef<Set<number>>(new Set());
+  const statsSnapshots = useRef<Map<number, { sent: number; lost: number }>>(new Map());
   const mountedRef = useRef(true);
+  const callRef = useRef<CallSession | null>(null);
+  const qualityRef = useRef<CallQuality>('poor');
 
   const [call, setCall] = useState<CallSession | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<Record<number, MediaStream>>({});
   const [micOn, setMicOn] = useState(true);
   const [cameraOn, setCameraOn] = useState(routeCallType !== 'audio');
-  const [status, setStatus] = useState('Preparing call…');
+  const [status, setStatus] = useState('Preparing low-data call…');
+  const [quality, setQuality] = useState<CallQuality>('poor');
   const [inviteOpen, setInviteOpen] = useState(false);
   const [selectedInvitees, setSelectedInvitees] = useState<number[]>([]);
   const [inviting, setInviting] = useState(false);
@@ -71,18 +81,16 @@ export default function CallRoomScreen() {
     }
   }, []);
 
-  const callRef = useRef<CallSession | null>(null);
-
   const sendSignal = useCallback((payload: Record<string, unknown>) => {
     if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify(payload));
   }, []);
 
   const removePeer = useCallback((remoteId: number) => {
-    const connection = peers.current.get(remoteId);
-    connection?.close();
+    peers.current.get(remoteId)?.close();
     peers.current.delete(remoteId);
     pendingCandidates.current.delete(remoteId);
     offeredPeers.current.delete(remoteId);
+    statsSnapshots.current.delete(remoteId);
     setRemoteStreams((current) => {
       const next = { ...current };
       delete next[remoteId];
@@ -94,7 +102,12 @@ export default function CallRoomScreen() {
     const existing = peers.current.get(remoteId);
     if (existing) return existing;
 
-    const connection = new RTCPeerConnection({ iceServers });
+    const connection = new RTCPeerConnection({
+      iceServers,
+      iceCandidatePoolSize: 4,
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require',
+    } as any);
     peers.current.set(remoteId, connection);
     localStreamRef.current?.getTracks().forEach((track) => connection.addTrack(track, localStreamRef.current as MediaStream));
     (connection as any).onicecandidate = (event: any) => {
@@ -105,11 +118,12 @@ export default function CallRoomScreen() {
       if (stream) setRemoteStreams((current) => ({ ...current, [remoteId]: stream }));
     };
     (connection as any).onconnectionstatechange = () => {
-      const peerState = connection.connectionState;
+      const peerState = (connection as any).connectionState;
       if (peerState === 'failed' || peerState === 'closed') removePeer(remoteId);
-      if (peerState === 'disconnected') setStatus('Reconnecting…');
-      if (peerState === 'connected') setStatus('Connected');
+      if (peerState === 'disconnected') setStatus('Weak network — buffering media…');
+      if (peerState === 'connected') setStatus(qualityRef.current === 'good' ? 'Connected' : `${qualityRef.current} network · audio protected`);
     };
+    void applyCallQuality(connection as any, qualityRef.current);
     return connection;
   }, [removePeer, sendSignal]);
 
@@ -125,8 +139,9 @@ export default function CallRoomScreen() {
     if (connection.signalingState !== 'stable') return;
     offeredPeers.current.add(remoteId);
     const offer = await connection.createOffer();
-    await connection.setLocalDescription(offer);
-    sendSignal({ type: 'offer', target_id: remoteId, sdp: offer });
+    const optimized = optimizedDescription(offer);
+    await connection.setLocalDescription(optimized);
+    sendSignal({ type: 'offer', target_id: remoteId, sdp: optimized });
   }, [createPeer, currentId, sendSignal]);
 
   useEffect(() => {
@@ -140,8 +155,14 @@ export default function CallRoomScreen() {
         setCurrentCall(session);
 
         const stream = await mediaDevices.getUserMedia({
-          audio: true,
-          video: session.call_type === 'video' ? { facingMode: 'user', width: 1280, height: 720, frameRate: 30 } : false,
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            channelCount: 1,
+            sampleRate: 24000,
+          } as any,
+          video: session.call_type === 'video' ? LOW_BANDWIDTH_VIDEO_CONSTRAINTS as any : false,
         });
         if (!mountedRef.current) {
           stream.release();
@@ -154,7 +175,7 @@ export default function CallRoomScreen() {
         const ws = new WebSocket(buildWebSocketUrl(`/ws/call/${room}/`, access));
         socket.current = ws;
         ws.onopen = () => {
-          setStatus(session.status === 'ringing' ? 'Ringing…' : 'Connecting…');
+          setStatus(session.status === 'ringing' ? 'Ringing…' : 'Connecting on low-data mode…');
           sendSignal({ type: 'ready' });
           for (const participant of session.participants) {
             const participantId = idOf(participant);
@@ -175,6 +196,7 @@ export default function CallRoomScreen() {
             const senderId = Number(message.sender_id || 0);
             if (!senderId || senderId === currentId) return;
 
+            if (type === 'network-quality') return;
             if (type === 'ready') {
               if (currentId < senderId) {
                 offeredPeers.current.delete(senderId);
@@ -187,8 +209,9 @@ export default function CallRoomScreen() {
               await connection.setRemoteDescription(new RTCSessionDescription(payload.sdp));
               await flushCandidates(senderId, connection);
               const answer = await connection.createAnswer();
-              await connection.setLocalDescription(answer);
-              sendSignal({ type: 'answer', target_id: senderId, sdp: answer });
+              const optimized = optimizedDescription(answer);
+              await connection.setLocalDescription(optimized);
+              sendSignal({ type: 'answer', target_id: senderId, sdp: optimized });
               return;
             }
             if (type === 'answer') {
@@ -227,6 +250,28 @@ export default function CallRoomScreen() {
       localStreamRef.current?.release();
     };
   }, [access, createOffer, createPeer, currentId, flushCandidates, removePeer, room, sendSignal, setCurrentCall]);
+
+  useEffect(() => {
+    const timer = setInterval(async () => {
+      let worst: CallQuality = 'good';
+      for (const [remoteId, peer] of peers.current.entries()) {
+        const report = await (peer as any).getStats?.().catch(() => null);
+        if (!report) continue;
+        const sample = networkSample(statsSnapshots.current.get(remoteId), report);
+        statsSnapshots.current.set(remoteId, sample.snapshot);
+        const next = qualityFromMetrics(sample.metrics);
+        if (next === 'critical' || (next === 'poor' && worst === 'good')) worst = next;
+      }
+      if (worst !== qualityRef.current) {
+        qualityRef.current = worst;
+        setQuality(worst);
+        await Promise.all([...peers.current.values()].map((peer) => applyCallQuality(peer as any, worst)));
+        sendSignal({ type: 'network-quality', profile: worst });
+        setStatus(worst === 'critical' ? 'Very poor network · video reduced to protect audio' : worst === 'poor' ? 'Poor network · reducing video data' : 'Connected');
+      }
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [sendSignal]);
 
   const toggleMic = () => {
     localStream?.getAudioTracks().forEach((track) => { track.enabled = !micOn; });
@@ -268,13 +313,14 @@ export default function CallRoomScreen() {
   const remoteEntries = Object.entries(remoteStreams).map(([participantId, stream]) => ({ participantId: Number(participantId), stream }));
   const participantFor = (participantId: number) => call?.participants.find((participant) => idOf(participant) === participantId);
   const connectedCount = remoteEntries.length + 1;
+  const qualityColor = quality === 'good' ? '#34D399' : quality === 'poor' ? '#FBBF24' : '#FB7185';
 
   return (
     <SafeAreaView style={styles.root}>
       <View style={styles.topBar}>
         <View style={{ flex: 1 }}>
           <Text numberOfLines={1} style={styles.callName}>{name || displayName(call?.created_by)}</Text>
-          <Text style={styles.callMeta}>{status} · {connectedCount} connected</Text>
+          <View style={styles.qualityRow}><Signal color={qualityColor} size={14} /><Text style={[styles.callMeta, { color: qualityColor }]}>{quality} network · {status} · {connectedCount} connected</Text></View>
         </View>
         <Pressable accessibilityLabel="Add participant" onPress={() => setInviteOpen(true)} style={styles.topAction}><UserPlus color="#fff" size={22} /></Pressable>
       </View>
@@ -297,7 +343,7 @@ export default function CallRoomScreen() {
           <View style={styles.audioStage}>
             <View style={styles.avatarGlow}><Avatar user={call?.participants.find((participant) => idOf(participant) !== currentId) || call?.created_by || undefined} size={126} /></View>
             <Text style={styles.waitingTitle}>{status}</Text>
-            <Text style={styles.waitingSubtitle}>{call?.participants.length || 1} participant{(call?.participants.length || 1) === 1 ? '' : 's'} in this call</Text>
+            <Text style={styles.waitingSubtitle}>Starts at 480×270 and buffers more before dropping audio.</Text>
           </View>
         )}
         {videoCall && localStream && cameraOn ? <RTCView mirror objectFit="cover" streamURL={localStream.toURL()} style={styles.local} /> : null}
@@ -327,18 +373,10 @@ export default function CallRoomScreen() {
               renderItem={({ item }) => {
                 const friendId = idOf(item);
                 const selected = selectedInvitees.includes(friendId);
-                return (
-                  <Pressable onPress={() => toggleInvitee(friendId)} style={styles.friendRow}>
-                    <Avatar user={item} size={46} />
-                    <View style={{ flex: 1 }}><Text style={styles.friendName}>{displayName(item)}</Text><Text style={styles.friendEmail}>{item.email}</Text></View>
-                    <View style={[styles.checkbox, selected && styles.checkboxSelected]}>{selected ? <Text style={styles.check}>✓</Text> : null}</View>
-                  </Pressable>
-                );
+                return <Pressable onPress={() => toggleInvitee(friendId)} style={styles.friendRow}><Avatar user={item} size={46} /><View style={{ flex: 1 }}><Text style={styles.friendName}>{displayName(item)}</Text><Text style={styles.friendEmail}>{item.email}</Text></View><View style={[styles.checkbox, selected && styles.checkboxSelected]}>{selected ? <Text style={styles.check}>✓</Text> : null}</View></Pressable>;
               }}
             />
-            <Pressable disabled={!selectedInvitees.length || inviting} onPress={invite} style={[styles.inviteButton, (!selectedInvitees.length || inviting) && styles.disabled]}>
-              <Text style={styles.inviteButtonText}>{inviting ? 'Inviting…' : `Add ${selectedInvitees.length || ''} participant${selectedInvitees.length === 1 ? '' : 's'}`}</Text>
-            </Pressable>
+            <Pressable disabled={!selectedInvitees.length || inviting} onPress={invite} style={[styles.inviteButton, (!selectedInvitees.length || inviting) && styles.disabled]}><Text style={styles.inviteButtonText}>{inviting ? 'Inviting…' : `Add ${selectedInvitees.length || ''} participant${selectedInvitees.length === 1 ? '' : 's'}`}</Text></Pressable>
           </View>
         </View>
       </Modal>
@@ -354,7 +392,8 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#050816' },
   topBar: { minHeight: 76, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#0B1026' },
   callName: { color: '#fff', fontSize: 19, fontWeight: '900' },
-  callMeta: { color: '#94A3B8', fontSize: 12, marginTop: 4 },
+  callMeta: { fontSize: 11, marginTop: 2, fontWeight: '700' },
+  qualityRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 },
   topAction: { width: 44, height: 44, borderRadius: 18, backgroundColor: '#28304D', alignItems: 'center', justifyContent: 'center' },
   stage: { flex: 1, position: 'relative', overflow: 'hidden' },
   videoGrid: { flexGrow: 1, padding: 6 },
@@ -364,7 +403,7 @@ const styles = StyleSheet.create({
   audioStage: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 30 },
   avatarGlow: { padding: 10, borderRadius: 90, backgroundColor: 'rgba(48,87,213,.25)', borderWidth: 2, borderColor: 'rgba(255,255,255,.13)' },
   waitingTitle: { color: '#fff', fontSize: 24, fontWeight: '900', textAlign: 'center', marginTop: 24 },
-  waitingSubtitle: { color: '#94A3B8', marginTop: 9 },
+  waitingSubtitle: { color: '#94A3B8', marginTop: 9, textAlign: 'center', lineHeight: 20 },
   local: { position: 'absolute', width: 112, height: 158, right: 14, top: 14, borderRadius: 18, overflow: 'hidden', backgroundColor: '#111827' },
   controls: { minHeight: 120, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 17, paddingHorizontal: 12, backgroundColor: '#0B1026' },
   controlBlock: { alignItems: 'center', gap: 7 },
