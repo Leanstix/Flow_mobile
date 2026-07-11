@@ -83,13 +83,11 @@ function drawFlowMark(pixels, scale = 1, offsetX = 0, offsetY = 0) {
   fillRoundedRect(pixels, sx(212), sy(172), ss(600), ss(600), ss(150), COLORS.blue);
   fillCircle(pixels, sx(735), sy(245), ss(95), COLORS.violet);
 
-  // Speech-bubble tail.
   for (let row = 0; row < ss(130); row += 1) {
     const width = Math.max(1, Math.round(ss(180) * (1 - row / ss(130))));
     fillRect(pixels, sx(335), sy(740) + row, width, 1, COLORS.blue);
   }
 
-  // Geometric F avoids font-dependent rendering in CI.
   fillRoundedRect(pixels, sx(390), sy(292), ss(92), ss(350), ss(24), COLORS.white);
   fillRoundedRect(pixels, sx(430), sy(292), ss(230), ss(92), ss(24), COLORS.white);
   fillRoundedRect(pixels, sx(430), sy(438), ss(178), ss(82), ss(22), COLORS.white);
@@ -99,18 +97,18 @@ function encodePng(pixels, filePath) {
   const scanlines = Buffer.alloc((SIZE * 4 + 1) * SIZE);
   for (let y = 0; y < SIZE; y += 1) {
     const rowStart = y * (SIZE * 4 + 1);
-    scanlines[rowStart] = 0; // PNG filter type 0: None.
+    scanlines[rowStart] = 0;
     Buffer.from(pixels.buffer, pixels.byteOffset + y * SIZE * 4, SIZE * 4).copy(scanlines, rowStart + 1);
   }
 
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(SIZE, 0);
   ihdr.writeUInt32BE(SIZE, 4);
-  ihdr[8] = 8; // bit depth
-  ihdr[9] = 6; // RGBA
-  ihdr[10] = 0; // compression
-  ihdr[11] = 0; // filter method
-  ihdr[12] = 0; // no interlace
+  ihdr[8] = 8;
+  ihdr[9] = 6;
+  ihdr[10] = 0;
+  ihdr[11] = 0;
+  ihdr[12] = 0;
 
   const png = Buffer.concat([
     Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
@@ -136,5 +134,3 @@ encodePng(adaptiveForeground, resolve(assetDirectory, 'android-icon-foreground.p
 const splash = createCanvas(COLORS.transparent);
 drawFlowMark(splash, 0.82, 92, 88);
 encodePng(splash, resolve(assetDirectory, 'splash-icon.png'));
-
-console.log('Generated 1024x1024 RGBA, non-interlaced PNG assets using filter type 0.');
