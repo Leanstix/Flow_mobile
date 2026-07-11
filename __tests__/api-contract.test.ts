@@ -12,6 +12,7 @@ jest.mock('@/lib/session', () => ({
 
 import api from '@/lib/http';
 import {
+  acceptCall,
   acceptFriendRequest,
   activateAccount,
   addComment,
@@ -29,6 +30,7 @@ import {
   deleteMessage,
   deletePost,
   editMessage,
+  fetchCall,
   fetchCommentReplies,
   fetchCommunities,
   fetchCommunity,
@@ -36,6 +38,7 @@ import {
   fetchCommunityPosts,
   fetchCommunityResources,
   fetchConversations,
+  fetchIncomingCalls,
   fetchMarketplaceListing,
   fetchMarketplaceListings,
   fetchMessages,
@@ -49,8 +52,10 @@ import {
   getFriendsFeed,
   getPosts,
   getUserProfile,
+  inviteCallParticipants,
   joinCommunity,
   joinRoom,
+  leaveCall,
   leaveCommunity,
   login,
   logout,
@@ -58,6 +63,7 @@ import {
   markConversationRead,
   markNotificationRead,
   passwordChange,
+  rejectCall,
   replyToComment,
   reportMarketplaceListing,
   reportPost,
@@ -69,6 +75,7 @@ import {
   sendMessage,
   setMarketplaceListingStatus,
   signUp,
+  startDirectCall,
   toggleCommunityPostPin,
   toggleCommunityResourcePin,
   toggleLike,
@@ -159,9 +166,25 @@ describe('backend contract', () => {
     expect(mockedApi.delete).toHaveBeenCalledWith('/marketplace/listings/7/');
   });
 
-  it('uses call-room routes', async () => {
-    await createRoom(); await joinRoom('room-code');
-    expect(mockedApi.post).toHaveBeenCalledWith('/call/create-room/');
+  it('uses direct and expandable call routes', async () => {
+    await createRoom('video');
+    await joinRoom('room-code');
+    await startDirectCall(8, 3, 'audio');
+    await fetchIncomingCalls();
+    await fetchCall('direct-room');
+    await acceptCall('direct-room');
+    await rejectCall('direct-room');
+    await inviteCallParticipants('direct-room', [9, 10]);
+    await leaveCall('direct-room');
+
+    expect(mockedApi.post).toHaveBeenCalledWith('/call/create-room/', { call_type: 'video' });
     expect(mockedApi.post).toHaveBeenCalledWith('/call/join-room/room-code/');
+    expect(mockedApi.post).toHaveBeenCalledWith('/call/direct/', { recipient_id: 8, conversation_id: 3, call_type: 'audio' });
+    expect(mockedApi.get).toHaveBeenCalledWith('/call/incoming/');
+    expect(mockedApi.get).toHaveBeenCalledWith('/call/direct-room/');
+    expect(mockedApi.post).toHaveBeenCalledWith('/call/direct-room/accept/');
+    expect(mockedApi.post).toHaveBeenCalledWith('/call/direct-room/reject/');
+    expect(mockedApi.post).toHaveBeenCalledWith('/call/direct-room/invite/', { user_ids: [9, 10] });
+    expect(mockedApi.post).toHaveBeenCalledWith('/call/direct-room/leave/');
   });
 });
