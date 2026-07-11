@@ -5,7 +5,9 @@ import { configureQueryManagers, queryClient, queryPersister } from '@/lib/query
 import { setSessionExpiredHandler } from '@/lib/http';
 import { useAuthStore } from '@/state/auth-store';
 import { FeedbackModal } from './ui';
+import { IncomingCallModal } from './incoming-call-modal';
 import { useNotificationsSocket } from '@/hooks/use-notifications-socket';
+import { useCallsSocket } from '@/hooks/use-calls-socket';
 
 function RuntimeBridge({ children }: { children: React.ReactNode }) {
   const hydrate = useAuthStore((s) => s.hydrate);
@@ -16,9 +18,10 @@ function RuntimeBridge({ children }: { children: React.ReactNode }) {
     return () => { setSessionExpiredHandler(null); cleanupManagers(); };
   }, [hydrate]);
   useNotificationsSocket();
-  return <>{children}<FeedbackModal /></>;
+  useCallsSocket();
+  return <>{children}<FeedbackModal /><IncomingCallModal /></>;
 }
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
-  return <SafeAreaProvider><PersistQueryClientProvider client={queryClient} persistOptions={{ persister: queryPersister, maxAge: 1000 * 60 * 60 * 12, dehydrateOptions: { shouldDehydrateQuery: (query) => !['messages', 'notifications', 'conversations'].includes(String(query.queryKey[0])) } }}><RuntimeBridge>{children}</RuntimeBridge></PersistQueryClientProvider></SafeAreaProvider>;
+  return <SafeAreaProvider><PersistQueryClientProvider client={queryClient} persistOptions={{ persister: queryPersister, maxAge: 1000 * 60 * 60 * 12, dehydrateOptions: { shouldDehydrateQuery: (query) => !['messages', 'notifications', 'conversations', 'calls'].includes(String(query.queryKey[0])) } }}><RuntimeBridge>{children}</RuntimeBridge></PersistQueryClientProvider></SafeAreaProvider>;
 }

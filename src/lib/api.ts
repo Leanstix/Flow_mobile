@@ -1,6 +1,8 @@
 import api from './http';
 import { clearSession, getSessionSync, saveSession, updateStoredUser } from './session';
 import type {
+  CallSession,
+  CallType,
   Comment,
   Community,
   CommunityMembership,
@@ -62,8 +64,22 @@ export async function fetchNotifications() { return (await api.get<Paginated<Not
 export async function fetchUnreadNotificationCount() { return (await api.get<{ unread_count: number }>('/notifications/unread_count/')).data; }
 export async function markNotificationRead(id: number) { return (await api.post(`/notifications/${id}/mark_read/`)).data; }
 export async function markAllNotificationsRead() { return (await api.post('/notifications/mark_all_read/')).data; }
-export async function createRoom() { return (await api.post<{ room_name: string }>('/call/create-room/')).data; }
-export async function joinRoom(name: string) { return (await api.post(`/call/join-room/${name}/`)).data; }
+
+export async function createRoom(callType: CallType = 'video') { return (await api.post<CallSession>('/call/create-room/', { call_type: callType })).data; }
+export async function joinRoom(name: string) { return (await api.post<CallSession>(`/call/join-room/${name}/`)).data; }
+export async function startDirectCall(recipientId: number, conversationId: number, callType: CallType) {
+  return (await api.post<CallSession>('/call/direct/', {
+    recipient_id: recipientId,
+    conversation_id: conversationId,
+    call_type: callType,
+  })).data;
+}
+export async function fetchIncomingCalls() { return (await api.get<CallSession[]>('/call/incoming/')).data; }
+export async function fetchCall(roomName: string) { return (await api.get<CallSession>(`/call/${roomName}/`)).data; }
+export async function acceptCall(roomName: string) { return (await api.post<CallSession>(`/call/${roomName}/accept/`)).data; }
+export async function rejectCall(roomName: string) { return (await api.post<CallSession>(`/call/${roomName}/reject/`)).data; }
+export async function inviteCallParticipants(roomName: string, userIds: number[]) { return (await api.post<CallSession>(`/call/${roomName}/invite/`, { user_ids: userIds })).data; }
+export async function leaveCall(roomName: string) { return (await api.post<{ detail: string; status: string }>(`/call/${roomName}/leave/`)).data; }
 
 export type CommunityFilters = { q?: string; category?: string; course_code?: string; mine?: boolean };
 export async function fetchCommunities(params: CommunityFilters = {}) { return (await api.get<Paginated<Community> | Community[]>('/groups/', { params })).data; }

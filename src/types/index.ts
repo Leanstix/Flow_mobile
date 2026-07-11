@@ -66,6 +66,40 @@ export type MessageReceiptPayload = {
 export type FriendRequest = { id: number; from_user: User; to_user: User; timestamp: string; accepted: boolean };
 export type Friend = User & { conversation_id?: number | null };
 export type Conversation = { id: number; participants: User[]; created_at: string; name: string; last_message?: Message | null; unread_count: number };
+
+export type CallType = 'audio' | 'video';
+export type CallStatus = 'ringing' | 'active' | 'ended' | 'rejected' | 'missed';
+export type CallInvitationStatus = 'ringing' | 'accepted' | 'rejected' | 'left';
+export type CallInvitation = {
+  id: number;
+  user: User;
+  invited_by?: User | null;
+  status: CallInvitationStatus;
+  created_at: string;
+  responded_at?: string | null;
+};
+export type CallSession = {
+  id: number;
+  room_name: string;
+  created_by?: User | null;
+  conversation_id?: number | null;
+  call_type: CallType;
+  status: CallStatus;
+  participants: User[];
+  invitations: CallInvitation[];
+  created_at: string;
+  started_at?: string | null;
+  ended_at?: string | null;
+};
+export type CallSocketEvent = {
+  type: string;
+  call?: CallSession;
+  accepted_by?: number;
+  rejected_by?: number;
+  ended_by?: number;
+  user_id?: number;
+};
+
 export type Notification = {
   id: number;
   recipient: number;
