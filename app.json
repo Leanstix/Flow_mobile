@@ -1,14 +1,18 @@
 {
   "expo": {
     "name": "Flow",
-    "slug": "flow-mobile",
+    "slug": "flow",
     "version": "1.0.0",
     "orientation": "portrait",
     "scheme": "flow",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "runtimeVersion": { "policy": "appVersion" },
-    "updates": { "fallbackToCacheTimeout": 0 },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "fallbackToCacheTimeout": 0
+    },
     "icon": "./assets/images/icon.png",
     "ios": {
       "supportsTablet": true,
@@ -17,11 +21,21 @@
         "NSCameraUsageDescription": "Flow uses your camera for video calls and profile media.",
         "NSMicrophoneUsageDescription": "Flow uses your microphone for audio and video calls.",
         "NSPhotoLibraryUsageDescription": "Flow uses your photo library for profile media."
-      }
+      },
+      "bitcode": false
     },
     "android": {
       "package": "com.leanstix.flow",
-      "permissions": ["CAMERA", "RECORD_AUDIO"],
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.INTERNET",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.WAKE_LOCK",
+        "android.permission.BLUETOOTH"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundColor": "#0B1437"
@@ -48,6 +62,15 @@
         }
       ]
     ],
-    "experiments": { "typedRoutes": true }
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "a67cf300-6ba3-4030-bfbc-7132b25a227a"
+      }
+    },
+    "owner": "leanstix"
   }
 }
