@@ -1,15 +1,16 @@
 name: Sync Expo document picker
 
 on:
-  push:
-    branches: [feat/media-threading-lowbandwidth]
-    paths: [.github/workflows/sync-document-picker.yml]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
 
 jobs:
   sync:
+    if: github.head_ref == 'feat/media-threading-lowbandwidth'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,8 +21,8 @@ jobs:
         with:
           node-version: '22.13.1'
           cache: npm
-      - run: npm ci
-      - run: npx expo install expo-document-picker
+      - run: npm install
+      - run: npx expo install --check
       - name: Commit deterministic package files and remove this workflow
         run: |
           rm .github/workflows/sync-document-picker.yml
