@@ -1,13 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { fetchIncomingCalls } from '@/lib/api';
+import { isIncomingCallForUser, parseUserCallEvent } from '@/lib/call-lifecycle';
 import { buildWebSocketUrl, reconnectDelay } from '@/lib/socket';
 import { useAuthStore } from '@/state/auth-store';
 import { useCallStore } from '@/state/call-store';
-import type { CallSession, CallSocketEvent } from '@/types';
-
-function invitationStatusFor(call: CallSession, userId: number) {
-  return call.invitations.find((invitation) => Number(invitation.user.id || invitation.user.user_id) === Number(userId))?.status;
-}
 
 export function useCallsSocket() {
   const access = useAuthStore((state) => state.session?.access);
@@ -30,7 +26,7 @@ export function useCallsSocket() {
     void fetchIncomingCalls()
       .then((calls) => {
         if (!active) return;
-        const ringing = calls.find((call) => invitationStatusFor(call, userId) === 'ringing');
+        const ringing = calls.find((call) => isIncomingCallForUser(call, userId));
         if (ringing) setIncomingCall(ringing);
       })
       .catch(() => undefined);
@@ -40,12 +36,11 @@ export function useCallsSocket() {
       socket.onopen = () => { retries.current = 0; };
       socket.onmessage = (event) => {
         try {
-          const payload = JSON.parse(event.data) as CallSocketEvent;
-          const call = payload.call;
-          if (!call) return;
-          const invited = invitationStatusFor(call, userId);
+          const payload = parseUserCallEvent(JSON.parse(event.data));
+          const call = payload?.call;
+          if (!payload || !call) return;
 
-          if (payload.type === 'call.incoming' && invited === 'ringing') {
+          if (payload.type === 'call.incoming' && isIncomingCallForUser(call, userId)) {
             setIncomingCall(call);
             return;
           }
