@@ -37,6 +37,9 @@ jobs:
           set -o pipefail
           npx expo install --check 2>&1 | tee expo-install-check.log
 
+      - name: Generate compatible native assets
+        run: node scripts/generate-native-assets.mjs
+
       - name: Lint
         run: npm run lint
 
@@ -48,6 +51,16 @@ jobs:
 
       - name: Validate Expo configuration
         run: npx expo config --type public > expo-config.json
+
+      - name: Validate Android prebuild
+        shell: bash
+        run: |
+          set -o pipefail
+          npx expo prebuild --clean --no-install --platform android 2>&1 | tee expo-prebuild.log
+
+      - name: Remove generated Android directory
+        if: always()
+        run: rm -rf android
 
       - name: Audit production dependency severity
         run: npm audit --omit=dev --audit-level=high
@@ -61,4 +74,5 @@ jobs:
             coverage
             expo-config.json
             expo-install-check.log
+            expo-prebuild.log
           if-no-files-found: ignore
