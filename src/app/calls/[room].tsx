@@ -16,7 +16,7 @@ import { fetchCall, getFriends, inviteCallParticipants, leaveCall } from '@/lib/
 import { buildWebSocketUrl } from '@/lib/socket';
 import { useAuthStore } from '@/state/auth-store';
 import { colors } from '@/theme';
-import { showApiError, showError, showSuccess } from '@/state/ui-store';
+import { showApiError, showSuccess } from '@/state/ui-store';
 import { Avatar } from '@/components/avatar';
 import type { CallSession, Friend, User } from '@/types';
 
@@ -43,7 +43,6 @@ export default function CallRoomScreen() {
   const peers = useRef<Map<number, RTCPeerConnection>>(new Map());
   const pendingCandidates = useRef<Map<number, RTCIceCandidate[]>>(new Map());
   const offeredPeers = useRef<Set<number>>(new Set());
-  const callRef = useRef<CallSession | null>(null);
   const mountedRef = useRef(true);
 
   const [call, setCall] = useState<CallSession | null>(null);
@@ -71,6 +70,8 @@ export default function CallRoomScreen() {
       setTimeout(() => router.back(), 700);
     }
   }, []);
+
+  const callRef = useRef<CallSession | null>(null);
 
   const sendSignal = useCallback((payload: Record<string, unknown>) => {
     if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify(payload));
@@ -358,7 +359,7 @@ const styles = StyleSheet.create({
   stage: { flex: 1, position: 'relative', overflow: 'hidden' },
   videoGrid: { flexGrow: 1, padding: 6 },
   remoteTile: { flex: 1, minHeight: 250, margin: 4, borderRadius: 18, overflow: 'hidden', backgroundColor: '#111827' },
-  remoteVideo: { ...StyleSheet.absoluteFillObject },
+  remoteVideo: { ...StyleSheet.absoluteFill },
   participantLabel: { position: 'absolute', left: 10, bottom: 10, color: '#fff', backgroundColor: 'rgba(5,8,22,.68)', borderRadius: 10, paddingHorizontal: 9, paddingVertical: 5, maxWidth: '80%', fontSize: 11, fontWeight: '800' },
   audioStage: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 30 },
   avatarGlow: { padding: 10, borderRadius: 90, backgroundColor: 'rgba(48,87,213,.25)', borderWidth: 2, borderColor: 'rgba(255,255,255,.13)' },
