@@ -76,7 +76,7 @@ export function PostComposer() {
   const pickVideo = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) { showApiError(new Error('Media library permission is required.'), 'Permission needed'); return; }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['videos'], allowsMultipleSelection: false, quality: ImagePicker.UIImagePickerControllerQualityType.Medium });
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['videos'], allowsMultipleSelection: false, quality: .72 });
     if (result.canceled) return;
     const asset = result.assets[0];
     const durationSeconds = secondsFromAsset(asset);
