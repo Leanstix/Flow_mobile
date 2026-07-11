@@ -4,7 +4,7 @@ const { join } = require('node:path');
 module.exports = ({ config }) => {
   execFileSync(process.execPath, [join(__dirname, 'scripts/generate-native-assets.mjs')], {
     cwd: __dirname,
-    stdio: process.env.CI ? 'ignore' : 'inherit',
+    stdio: ['ignore', 'ignore', 'inherit'],
   });
 
   return config;
