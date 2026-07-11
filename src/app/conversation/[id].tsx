@@ -10,10 +10,19 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { Swipeable } from 'react-native-gesture-handler';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Pencil, Reply, Send, Trash2, Wifi, WifiOff, X } from 'lucide-react-native';
-import { deleteMessage, editMessage, fetchMessages, markConversationRead, sendMessage } from '@/lib/api';
+import { Pencil, Phone, Reply, Send, Trash2, Video, Wifi, WifiOff, X } from 'lucide-react-native';
+import {
+  deleteMessage,
+  editMessage,
+  fetchConversations,
+  fetchMessages,
+  markConversationRead,
+  sendMessage,
+  startDirectCall,
+} from '@/lib/api';
 import {
   applyMessageReceipt,
   deletedMessage,
@@ -25,10 +34,38 @@ import { useConversationSocket } from '@/hooks/use-conversation-socket';
 import { useAuthStore } from '@/state/auth-store';
 import { colors, spacing } from '@/theme';
 import { showApiError, showConfirm, showError } from '@/state/ui-store';
-import type { Message } from '@/types';
+import type { CallType, Conversation, Message, User } from '@/types';
 
 function senderName(message: Message) {
   return message.sender.user_name || message.sender.email || 'Student';
+}
+
+function userId(user?: User | null) {
+  return Number(user?.id || user?.user_id || 0);
+}
+
+function SwipeReply({ disabled, onReply, children }: { disabled: boolean; onReply: () => void; children: React.ReactNode }) {
+  const ref = useRef<any>(null);
+  return (
+    <Swipeable
+      ref={ref}
+      enabled={!disabled}
+      friction={1.8}
+      leftThreshold={42}
+      overshootLeft={false}
+      onSwipeableOpen={() => {
+        ref.current?.close();
+        onReply();
+      }}
+      renderLeftActions={() => (
+        <View style={styles.swipeReplyAction}>
+          <View style={styles.swipeReplyCircle}><Reply color="#fff" size={18} /></View>
+        </View>
+      )}
+    >
+      {children}
+    </Swipeable>
+  );
 }
 
 export default function ConversationScreen() {
@@ -43,12 +80,45 @@ export default function ConversationScreen() {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [editing, setEditing] = useState<Message | null>(null);
   const [actionMessage, setActionMessage] = useState<Message | null>(null);
+  const [calling, setCalling] = useState<CallType | null>(null);
 
   const messages = useQuery({
     queryKey: ['messages', id],
     queryFn: () => fetchMessages(id),
     enabled: Number.isFinite(id),
   });
+  const conversations = useQuery({
+    queryKey: ['conversations'],
+    queryFn: fetchConversations,
+  });
+  const conversation = (Array.isArray(conversations.data) ? conversations.data : []).find((item: Conversation) => item.id === id);
+  const otherParticipants = conversation?.participants.filter((participant) => userId(participant) !== Number(currentId)) || [];
+  const directPeer = otherParticipants.length === 1 ? otherParticipants[0] : null;
+  const title = params.name || conversation?.name || directPeer?.user_name || directPeer?.email || 'Conversation';
+
+  const startCall = useCallback(async (callType: CallType) => {
+    if (!directPeer || !userId(directPeer)) {
+      showError('Start from an individual chat', 'Direct calls begin with one person. Once connected, use Add participant to bring more people into the call.');
+      return;
+    }
+    setCalling(callType);
+    try {
+      const call = await startDirectCall(userId(directPeer), id, callType);
+      router.push({
+        pathname: '/calls/[room]',
+        params: {
+          room: call.room_name,
+          callType: call.call_type,
+          host: '1',
+          name: directPeer.user_name || directPeer.email,
+        },
+      });
+    } catch (error) {
+      showApiError(error, `Could not start ${callType} call`);
+    } finally {
+      setCalling(null);
+    }
+  }, [directPeer, id]);
 
   const updateCachedMessage = useCallback((message: Message) => {
     client.setQueryData<Message[]>(['messages', id], (current = []) => upsertMessage(current, message));
@@ -61,20 +131,17 @@ export default function ConversationScreen() {
       typingTimer.current = setTimeout(() => setTypingLabel(''), 1800);
       return;
     }
-
     if (event.type === 'error') {
       showError('Message could not be processed', event.error);
       return;
     }
-
     if (event.type === 'message.receipt') {
       client.setQueryData<Message[]>(['messages', id], (current = []) => applyMessageReceipt(current, event));
       return;
     }
-
     updateCachedMessage(event.message);
     void client.invalidateQueries({ queryKey: ['conversations'] });
-    if (event.type === 'message.created' && Number(event.message.sender.id || event.message.sender.user_id) !== Number(currentId)) {
+    if (event.type === 'message.created' && userId(event.message.sender) !== Number(currentId)) {
       void markConversationRead(id).catch(() => undefined);
     }
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
@@ -135,11 +202,12 @@ export default function ConversationScreen() {
     setContent('');
   };
 
-  const beginReply = (message: Message) => {
+  const beginReply = useCallback((message: Message) => {
+    if (message.is_deleted || message.deleted_at) return;
     setEditing(null);
     setReplyingTo(message);
     setActionMessage(null);
-  };
+  }, []);
 
   const beginEdit = (message: Message) => {
     setReplyingTo(null);
@@ -156,12 +224,10 @@ export default function ConversationScreen() {
   const submit = () => {
     const text = content.trim();
     if (!text) return;
-
     if (editing) {
       editMutation.mutate({ messageId: editing.id, text });
       return;
     }
-
     setContent('');
     const replyToId = replyingTo?.id || null;
     setReplyingTo(null);
@@ -173,6 +239,21 @@ export default function ConversationScreen() {
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={90} style={styles.root}>
+      <Stack.Screen
+        options={{
+          title,
+          headerRight: () => (
+            <View style={styles.headerActions}>
+              <Pressable accessibilityLabel="Start audio call" disabled={Boolean(calling)} onPress={() => void startCall('audio')} style={styles.headerAction}>
+                <Phone color={calling === 'audio' ? colors.muted : colors.primary} size={21} />
+              </Pressable>
+              <Pressable accessibilityLabel="Start video call" disabled={Boolean(calling)} onPress={() => void startCall('video')} style={styles.headerAction}>
+                <Video color={calling === 'video' ? colors.muted : colors.primary} size={22} />
+              </Pressable>
+            </View>
+          ),
+        }}
+      />
       <View style={styles.status}>
         {connected ? <Wifi color={colors.success} size={15} /> : <WifiOff color={colors.warning} size={15} />}
         <Text style={styles.statusText}>{connected ? 'Realtime connected' : 'Reconnecting — REST fallback active'}</Text>
@@ -185,39 +266,38 @@ export default function ConversationScreen() {
         keyExtractor={(item) => String(item.id)}
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
         renderItem={({ item }) => {
-          const mine = Number(item.sender.id || item.sender.user_id) === Number(currentId);
+          const mine = userId(item.sender) === Number(currentId);
           const deleted = Boolean(item.is_deleted || item.deleted_at);
           return (
-            <View style={[styles.bubbleWrap, mine ? styles.mineWrap : styles.theirWrap]}>
-              <Pressable
-                accessibilityHint={deleted ? undefined : 'Long press for message actions'}
-                delayLongPress={350}
-                disabled={deleted}
-                onLongPress={() => setActionMessage(item)}
-                style={[styles.bubble, mine ? styles.mine : styles.theirs]}
-              >
-                {item.reply_preview ? (
-                  <View style={[styles.replyPreview, mine && styles.replyPreviewMine]}>
-                    <Text numberOfLines={1} style={[styles.replySender, mine && styles.mineMeta]}>{item.reply_preview.is_deleted ? 'Deleted message' : item.reply_preview.sender.user_name || item.reply_preview.sender.email}</Text>
-                    <Text numberOfLines={2} style={[styles.replyText, mine && styles.mineMeta]}>{item.reply_preview.is_deleted ? 'This message was deleted.' : item.reply_preview.content}</Text>
+            <SwipeReply disabled={deleted} onReply={() => beginReply(item)}>
+              <View style={[styles.bubbleWrap, mine ? styles.mineWrap : styles.theirWrap]}>
+                <Pressable
+                  accessibilityHint={deleted ? undefined : 'Long press for message actions'}
+                  delayLongPress={350}
+                  disabled={deleted}
+                  onLongPress={() => setActionMessage(item)}
+                  style={[styles.bubble, mine ? styles.mine : styles.theirs]}
+                >
+                  {item.reply_preview ? (
+                    <View style={[styles.replyPreview, mine && styles.replyPreviewMine]}>
+                      <Text numberOfLines={1} style={[styles.replySender, mine && styles.mineMeta]}>{item.reply_preview.is_deleted ? 'Deleted message' : item.reply_preview.sender.user_name || item.reply_preview.sender.email}</Text>
+                      <Text numberOfLines={2} style={[styles.replyText, mine && styles.mineMeta]}>{item.reply_preview.is_deleted ? 'This message was deleted.' : item.reply_preview.content}</Text>
+                    </View>
+                  ) : null}
+                  <Text style={[styles.message, mine && styles.mineText, deleted && styles.deletedText]}>{deleted ? 'This message was deleted.' : item.content}</Text>
+                  <View style={styles.metaRow}>
+                    <Text style={[styles.time, mine && styles.mineMeta]}>{item.edited_at && !deleted ? 'Edited · ' : ''}{new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+                    {mine && !deleted ? <Text style={[styles.time, styles.mineMeta]}>{messageStatusLabel(item)}</Text> : null}
                   </View>
-                ) : null}
-                <Text style={[styles.message, mine && styles.mineText, deleted && styles.deletedText]}>{deleted ? 'This message was deleted.' : item.content}</Text>
-                <View style={styles.metaRow}>
-                  <Text style={[styles.time, mine && styles.mineMeta]}>
-                    {item.edited_at && !deleted ? 'Edited · ' : ''}{new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </Text>
-                  {mine && !deleted ? <Text style={[styles.time, styles.mineMeta]}>{messageStatusLabel(item)}</Text> : null}
-                </View>
-              </Pressable>
-            </View>
+                </Pressable>
+              </View>
+            </SwipeReply>
           );
         }}
         ListEmptyComponent={<Text style={styles.empty}>Start the conversation.</Text>}
       />
 
       {typingLabel ? <Text style={styles.typing}>{typingLabel}</Text> : null}
-
       {editing || replyingTo ? (
         <View style={styles.composerContext}>
           <View style={styles.contextBar} />
@@ -256,7 +336,7 @@ export default function ConversationScreen() {
             {actionMessage ? (
               <>
                 <Pressable onPress={() => beginReply(actionMessage)} style={styles.actionRow}><Reply color={colors.primary} size={20} /><Text style={styles.actionText}>Reply</Text></Pressable>
-                {Number(actionMessage.sender.id || actionMessage.sender.user_id) === Number(currentId) ? (
+                {userId(actionMessage.sender) === Number(currentId) ? (
                   <>
                     <Pressable onPress={() => beginEdit(actionMessage)} style={styles.actionRow}><Pencil color={colors.primary} size={20} /><Text style={styles.actionText}>Edit message</Text></Pressable>
                     <Pressable onPress={() => confirmDelete(actionMessage)} style={styles.actionRow}><Trash2 color={colors.danger} size={20} /><Text style={[styles.actionText, styles.dangerText]}>Delete for everyone</Text></Pressable>
@@ -274,9 +354,13 @@ export default function ConversationScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  headerAction: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   status: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 7, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: colors.border },
   statusText: { color: colors.muted, fontSize: 11, fontWeight: '700' },
   list: { padding: spacing.lg, flexGrow: 1, justifyContent: 'flex-end' },
+  swipeReplyAction: { width: 66, justifyContent: 'center', alignItems: 'center' },
+  swipeReplyCircle: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   bubbleWrap: { marginVertical: 4, flexDirection: 'row' },
   mineWrap: { justifyContent: 'flex-end' },
   theirWrap: { justifyContent: 'flex-start' },
