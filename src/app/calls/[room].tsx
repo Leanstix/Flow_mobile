@@ -1,100 +1,390 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, SafeAreaView, Share, StyleSheet, Text, View } from 'react-native';
-import { useLocalSearchParams, router } from 'expo-router';
-import { Camera, CameraOff, Copy, Mic, MicOff, PhoneOff, RefreshCw } from 'lucide-react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  FlatList,
+  Modal,
+  Pressable,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useQuery } from '@tanstack/react-query';
+import { Camera, CameraOff, Mic, MicOff, PhoneOff, RefreshCw, UserPlus, X } from 'lucide-react-native';
 import { mediaDevices, MediaStream, RTCPeerConnection, RTCIceCandidate, RTCSessionDescription, RTCView } from 'react-native-webrtc';
+import { fetchCall, getFriends, inviteCallParticipants, leaveCall } from '@/lib/api';
 import { buildWebSocketUrl } from '@/lib/socket';
 import { useAuthStore } from '@/state/auth-store';
 import { colors } from '@/theme';
-import { showApiError } from '@/state/ui-store';
+import { showApiError, showError, showSuccess } from '@/state/ui-store';
+import { Avatar } from '@/components/avatar';
+import type { CallSession, Friend, User } from '@/types';
 
 const iceServers = [
   { urls: 'stun:stun.l.google.com:19302' },
   ...(process.env.EXPO_PUBLIC_TURN_URL ? [{ urls: process.env.EXPO_PUBLIC_TURN_URL, username: process.env.EXPO_PUBLIC_TURN_USERNAME, credential: process.env.EXPO_PUBLIC_TURN_CREDENTIAL }] : []),
 ];
 
+function idOf(user?: User | null) {
+  return Number(user?.id || user?.user_id || 0);
+}
+
+function displayName(user?: User | null) {
+  return user?.user_name || user?.email || 'Flow user';
+}
+
 export default function CallRoomScreen() {
-  const { room, host } = useLocalSearchParams<{ room: string; host?: string }>();
-  const access = useAuthStore((s) => s.session?.access);
-  const peer = useRef<RTCPeerConnection | null>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
+  const { room, callType: routeCallType, name } = useLocalSearchParams<{ room: string; callType?: 'audio' | 'video'; name?: string }>();
+  const access = useAuthStore((state) => state.session?.access);
+  const currentUser = useAuthStore((state) => state.session?.user);
+  const currentId = idOf(currentUser);
   const socket = useRef<WebSocket | null>(null);
-  const pendingCandidates = useRef<RTCIceCandidate[]>([]);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const peers = useRef<Map<number, RTCPeerConnection>>(new Map());
+  const pendingCandidates = useRef<Map<number, RTCIceCandidate[]>>(new Map());
+  const offeredPeers = useRef<Set<number>>(new Set());
+  const callRef = useRef<CallSession | null>(null);
+  const mountedRef = useRef(true);
+
+  const [call, setCall] = useState<CallSession | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [remoteStreams, setRemoteStreams] = useState<Record<number, MediaStream>>({});
   const [micOn, setMicOn] = useState(true);
-  const [cameraOn, setCameraOn] = useState(true);
-  const [status, setStatus] = useState('Preparing your camera…');
+  const [cameraOn, setCameraOn] = useState(routeCallType !== 'audio');
+  const [status, setStatus] = useState('Preparing call…');
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [selectedInvitees, setSelectedInvitees] = useState<number[]>([]);
+  const [inviting, setInviting] = useState(false);
+
+  const friendsQuery = useQuery({ queryKey: ['friends'], queryFn: getFriends, enabled: inviteOpen });
+  const friends = Array.isArray(friendsQuery.data) ? friendsQuery.data : [];
+  const callType = call?.call_type || routeCallType || 'video';
+  const videoCall = callType === 'video';
+
+  const setCurrentCall = useCallback((next: CallSession) => {
+    callRef.current = next;
+    setCall(next);
+    if (next.status === 'ringing') setStatus('Ringing…');
+    if (next.status === 'active') setStatus('Connected');
+    if (next.status === 'ended' || next.status === 'rejected') {
+      setStatus(next.status === 'rejected' ? 'Call declined' : 'Call ended');
+      setTimeout(() => router.back(), 700);
+    }
+  }, []);
 
   const sendSignal = useCallback((payload: Record<string, unknown>) => {
     if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify(payload));
   }, []);
 
-  const createOffer = useCallback(async () => {
-    if (!peer.current || !socket.current || socket.current.readyState !== WebSocket.OPEN) return;
-    const offer = await peer.current.createOffer();
-    await peer.current.setLocalDescription(offer);
-    sendSignal({ type: 'offer', sdp: offer });
-    setStatus('Waiting for the other student…');
-  }, [sendSignal]);
+  const removePeer = useCallback((remoteId: number) => {
+    const connection = peers.current.get(remoteId);
+    connection?.close();
+    peers.current.delete(remoteId);
+    pendingCandidates.current.delete(remoteId);
+    offeredPeers.current.delete(remoteId);
+    setRemoteStreams((current) => {
+      const next = { ...current };
+      delete next[remoteId];
+      return next;
+    });
+  }, []);
+
+  const createPeer = useCallback((remoteId: number) => {
+    const existing = peers.current.get(remoteId);
+    if (existing) return existing;
+
+    const connection = new RTCPeerConnection({ iceServers });
+    peers.current.set(remoteId, connection);
+    localStreamRef.current?.getTracks().forEach((track) => connection.addTrack(track, localStreamRef.current as MediaStream));
+    (connection as any).onicecandidate = (event: any) => {
+      if (event.candidate) sendSignal({ type: 'ice-candidate', target_id: remoteId, candidate: event.candidate.toJSON() });
+    };
+    (connection as any).ontrack = (event: any) => {
+      const stream = event.streams?.[0];
+      if (stream) setRemoteStreams((current) => ({ ...current, [remoteId]: stream }));
+    };
+    (connection as any).onconnectionstatechange = () => {
+      const peerState = connection.connectionState;
+      if (peerState === 'failed' || peerState === 'closed') removePeer(remoteId);
+      if (peerState === 'disconnected') setStatus('Reconnecting…');
+      if (peerState === 'connected') setStatus('Connected');
+    };
+    return connection;
+  }, [removePeer, sendSignal]);
+
+  const flushCandidates = useCallback(async (remoteId: number, connection: RTCPeerConnection) => {
+    const queued = pendingCandidates.current.get(remoteId) || [];
+    pendingCandidates.current.delete(remoteId);
+    for (const candidate of queued) await connection.addIceCandidate(candidate);
+  }, []);
+
+  const createOffer = useCallback(async (remoteId: number) => {
+    if (!remoteId || remoteId === currentId || offeredPeers.current.has(remoteId)) return;
+    const connection = createPeer(remoteId);
+    if (connection.signalingState !== 'stable') return;
+    offeredPeers.current.add(remoteId);
+    const offer = await connection.createOffer();
+    await connection.setLocalDescription(offer);
+    sendSignal({ type: 'offer', target_id: remoteId, sdp: offer });
+  }, [createPeer, currentId, sendSignal]);
 
   useEffect(() => {
-    if (!room || !access) return;
-    let mounted = true;
+    if (!room || !access || !currentId) return;
+    mountedRef.current = true;
+
     const setup = async () => {
       try {
-        const stream = await mediaDevices.getUserMedia({ audio: true, video: { facingMode: 'user', width: 1280, height: 720, frameRate: 30 } });
-        if (!mounted) { stream.release(); return; }
+        const session = await fetchCall(room);
+        if (!mountedRef.current) return;
+        setCurrentCall(session);
+
+        const stream = await mediaDevices.getUserMedia({
+          audio: true,
+          video: session.call_type === 'video' ? { facingMode: 'user', width: 1280, height: 720, frameRate: 30 } : false,
+        });
+        if (!mountedRef.current) {
+          stream.release();
+          return;
+        }
         localStreamRef.current = stream;
         setLocalStream(stream);
-        const connection = new RTCPeerConnection({ iceServers });
-        peer.current = connection;
-        stream.getTracks().forEach((track) => connection.addTrack(track, stream));
-        (connection as any).onicecandidate = (event: any) => { if (event.candidate) sendSignal({ type: 'ice-candidate', candidate: event.candidate.toJSON() }); };
-        (connection as any).ontrack = (event: any) => { const first = event.streams?.[0]; if (first) setRemoteStream(first); };
-        (connection as any).onconnectionstatechange = () => {
-          const state = connection.connectionState;
-          setStatus(state === 'connected' ? 'Connected' : state === 'failed' ? 'Connection failed' : state === 'disconnected' ? 'Reconnecting…' : 'Connecting…');
-        };
+        setCameraOn(session.call_type === 'video');
+
         const ws = new WebSocket(buildWebSocketUrl(`/ws/call/${room}/`, access));
         socket.current = ws;
-        ws.onopen = () => { setStatus(host === '1' ? 'Waiting for the other student…' : 'Joining call…'); if (host === '1') void createOffer(); };
-        ws.onmessage = async (event) => {
-          const message = JSON.parse(event.data);
-          const payload = message.data || message;
-          const type = message.event_type || payload.type;
-          if (type === 'offer') {
-            await connection.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-            const answer = await connection.createAnswer();
-            await connection.setLocalDescription(answer);
-            sendSignal({ type: 'answer', sdp: answer });
-          } else if (type === 'answer') {
-            await connection.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-          } else if (type === 'hangup') {
-            setStatus('The other participant ended the call');
-            setTimeout(() => router.back(), 700);
-          } else if (type === 'ice-candidate' && payload.candidate) {
-            const candidate = new RTCIceCandidate(payload.candidate);
-            if (connection.remoteDescription) await connection.addIceCandidate(candidate); else pendingCandidates.current.push(candidate);
+        ws.onopen = () => {
+          setStatus(session.status === 'ringing' ? 'Ringing…' : 'Connecting…');
+          sendSignal({ type: 'ready' });
+          for (const participant of session.participants) {
+            const participantId = idOf(participant);
+            if (participantId && currentId < participantId) void createOffer(participantId);
           }
-          if (connection.remoteDescription && pendingCandidates.current.length) {
-            for (const candidate of pendingCandidates.current.splice(0)) await connection.addIceCandidate(candidate);
+        };
+        ws.onmessage = async (event) => {
+          try {
+            const message = JSON.parse(event.data);
+            if (message.call) {
+              setCurrentCall(message.call as CallSession);
+              if (message.event_type === 'call.participant_left' && message.user_id) removePeer(Number(message.user_id));
+              return;
+            }
+
+            const payload = message.data || message;
+            const type = message.event_type || payload.type;
+            const senderId = Number(message.sender_id || 0);
+            if (!senderId || senderId === currentId) return;
+
+            if (type === 'ready') {
+              if (currentId < senderId) {
+                offeredPeers.current.delete(senderId);
+                await createOffer(senderId);
+              }
+              return;
+            }
+            if (type === 'offer') {
+              const connection = createPeer(senderId);
+              await connection.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+              await flushCandidates(senderId, connection);
+              const answer = await connection.createAnswer();
+              await connection.setLocalDescription(answer);
+              sendSignal({ type: 'answer', target_id: senderId, sdp: answer });
+              return;
+            }
+            if (type === 'answer') {
+              const connection = createPeer(senderId);
+              await connection.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+              await flushCandidates(senderId, connection);
+              return;
+            }
+            if (type === 'ice-candidate' && payload.candidate) {
+              const connection = createPeer(senderId);
+              const candidate = new RTCIceCandidate(payload.candidate);
+              if (connection.remoteDescription) await connection.addIceCandidate(candidate);
+              else pendingCandidates.current.set(senderId, [...(pendingCandidates.current.get(senderId) || []), candidate]);
+              return;
+            }
+            if (type === 'hangup') removePeer(senderId);
+          } catch (error) {
+            showApiError(error, 'Call signalling failed');
           }
         };
         ws.onerror = () => setStatus('Signalling connection failed');
-        ws.onclose = () => mounted && setStatus('Call signalling closed');
-      } catch (error) { showApiError(error, 'Could not start camera or microphone'); router.back(); }
+        ws.onclose = () => mountedRef.current && setStatus('Call signalling closed');
+      } catch (error) {
+        showApiError(error, 'Could not start camera or microphone');
+        router.back();
+      }
     };
+
     void setup();
-    return () => { mounted = false; socket.current?.close(); peer.current?.close(); localStreamRef.current?.getTracks().forEach((track) => track.stop()); localStreamRef.current?.release(); };
-  }, [access, createOffer, host, room, sendSignal]);
+    return () => {
+      mountedRef.current = false;
+      socket.current?.close();
+      for (const connection of peers.current.values()) connection.close();
+      peers.current.clear();
+      localStreamRef.current?.getTracks().forEach((track) => track.stop());
+      localStreamRef.current?.release();
+    };
+  }, [access, createOffer, createPeer, currentId, flushCandidates, removePeer, room, sendSignal, setCurrentCall]);
 
-  const toggleMic = () => { localStream?.getAudioTracks().forEach((track) => { track.enabled = !micOn; }); setMicOn(!micOn); };
-  const toggleCamera = () => { localStream?.getVideoTracks().forEach((track) => { track.enabled = !cameraOn; }); setCameraOn(!cameraOn); };
+  const toggleMic = () => {
+    localStream?.getAudioTracks().forEach((track) => { track.enabled = !micOn; });
+    setMicOn(!micOn);
+    sendSignal({ type: 'media-state', audio: !micOn, video: cameraOn });
+  };
+  const toggleCamera = () => {
+    localStream?.getVideoTracks().forEach((track) => { track.enabled = !cameraOn; });
+    setCameraOn(!cameraOn);
+    sendSignal({ type: 'media-state', audio: micOn, video: !cameraOn });
+  };
   const switchCamera = () => localStream?.getVideoTracks().forEach((track) => (track as any)._switchCamera?.());
-  const hangup = () => { sendSignal({ type: 'hangup' }); router.back(); };
 
-  return <SafeAreaView style={styles.root}><View style={styles.stage}>{remoteStream ? <RTCView mirror={false} objectFit="cover" streamURL={remoteStream.toURL()} style={styles.remote} /> : <View style={styles.waiting}><Text style={styles.waitingTitle}>{status}</Text><Text style={styles.room}>Room: {room}</Text><Pressable onPress={() => Share.share({ message: `Join my Flow call with room code: ${room}` })} style={styles.share}><Copy color="#fff" size={18} /><Text style={styles.shareText}>Share room code</Text></Pressable></View>}{localStream && cameraOn ? <RTCView mirror objectFit="cover" streamURL={localStream.toURL()} style={styles.local} /> : null}<View style={styles.statusPill}><Text style={styles.statusText}>{status}</Text></View></View><View style={styles.controls}><Control active={micOn} icon={micOn ? Mic : MicOff} onPress={toggleMic} /><Control active={cameraOn} icon={cameraOn ? Camera : CameraOff} onPress={toggleCamera} /><Control active icon={RefreshCw} onPress={switchCamera} /><Pressable onPress={hangup} style={[styles.control, styles.hangup]}><PhoneOff color="#fff" size={24} /></Pressable></View></SafeAreaView>;
+  const hangup = async () => {
+    sendSignal({ type: 'hangup' });
+    try { await leaveCall(room); } catch { /* Socket hangup still closes the local call. */ }
+    router.back();
+  };
+
+  const existingIds = useMemo(() => new Set((call?.participants || []).map(idOf)), [call?.participants]);
+  const availableFriends = friends.filter((friend: Friend) => !existingIds.has(idOf(friend)));
+  const toggleInvitee = (friendId: number) => setSelectedInvitees((current) => current.includes(friendId) ? current.filter((id) => id !== friendId) : [...current, friendId]);
+  const invite = async () => {
+    if (!selectedInvitees.length) return;
+    setInviting(true);
+    try {
+      const updated = await inviteCallParticipants(room, selectedInvitees);
+      setCurrentCall(updated);
+      setSelectedInvitees([]);
+      setInviteOpen(false);
+      showSuccess('Invitation sent', 'They will see an incoming call and can join this conversation.');
+    } catch (error) {
+      showApiError(error, 'Could not add participants');
+    } finally {
+      setInviting(false);
+    }
+  };
+
+  const remoteEntries = Object.entries(remoteStreams).map(([participantId, stream]) => ({ participantId: Number(participantId), stream }));
+  const participantFor = (participantId: number) => call?.participants.find((participant) => idOf(participant) === participantId);
+  const connectedCount = remoteEntries.length + 1;
+
+  return (
+    <SafeAreaView style={styles.root}>
+      <View style={styles.topBar}>
+        <View style={{ flex: 1 }}>
+          <Text numberOfLines={1} style={styles.callName}>{name || displayName(call?.created_by)}</Text>
+          <Text style={styles.callMeta}>{status} · {connectedCount} connected</Text>
+        </View>
+        <Pressable accessibilityLabel="Add participant" onPress={() => setInviteOpen(true)} style={styles.topAction}><UserPlus color="#fff" size={22} /></Pressable>
+      </View>
+
+      <View style={styles.stage}>
+        {videoCall && remoteEntries.length ? (
+          <FlatList
+            contentContainerStyle={styles.videoGrid}
+            data={remoteEntries}
+            keyExtractor={(item) => String(item.participantId)}
+            numColumns={remoteEntries.length > 1 ? 2 : 1}
+            renderItem={({ item }) => (
+              <View style={styles.remoteTile}>
+                <RTCView mirror={false} objectFit="cover" streamURL={item.stream.toURL()} style={styles.remoteVideo} />
+                <Text numberOfLines={1} style={styles.participantLabel}>{displayName(participantFor(item.participantId))}</Text>
+              </View>
+            )}
+          />
+        ) : (
+          <View style={styles.audioStage}>
+            <View style={styles.avatarGlow}><Avatar user={call?.participants.find((participant) => idOf(participant) !== currentId) || call?.created_by || undefined} size={126} /></View>
+            <Text style={styles.waitingTitle}>{status}</Text>
+            <Text style={styles.waitingSubtitle}>{call?.participants.length || 1} participant{(call?.participants.length || 1) === 1 ? '' : 's'} in this call</Text>
+          </View>
+        )}
+        {videoCall && localStream && cameraOn ? <RTCView mirror objectFit="cover" streamURL={localStream.toURL()} style={styles.local} /> : null}
+      </View>
+
+      <View style={styles.controls}>
+        <Control active={micOn} icon={micOn ? Mic : MicOff} label={micOn ? 'Mute' : 'Unmute'} onPress={toggleMic} />
+        {videoCall ? <Control active={cameraOn} icon={cameraOn ? Camera : CameraOff} label={cameraOn ? 'Camera' : 'Camera off'} onPress={toggleCamera} /> : null}
+        {videoCall ? <Control active icon={RefreshCw} label="Flip" onPress={switchCamera} /> : null}
+        <View style={styles.controlBlock}>
+          <Pressable accessibilityLabel="End call" onPress={hangup} style={[styles.control, styles.hangup]}><PhoneOff color="#fff" size={24} /></Pressable>
+          <Text style={styles.controlLabel}>End</Text>
+        </View>
+      </View>
+
+      <Modal animationType="slide" onRequestClose={() => setInviteOpen(false)} transparent visible={inviteOpen}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.inviteSheet}>
+            <View style={styles.sheetHeader}>
+              <View><Text style={styles.sheetTitle}>Add participants</Text><Text style={styles.sheetSubtitle}>Invite up to {Math.max(0, 8 - (call?.participants.length || 1))} more people</Text></View>
+              <Pressable accessibilityLabel="Close" onPress={() => setInviteOpen(false)} style={styles.closeButton}><X color={colors.text} size={21} /></Pressable>
+            </View>
+            <FlatList
+              data={availableFriends}
+              keyExtractor={(item) => String(idOf(item))}
+              ListEmptyComponent={<Text style={styles.emptyFriends}>Everyone available is already in the call.</Text>}
+              renderItem={({ item }) => {
+                const friendId = idOf(item);
+                const selected = selectedInvitees.includes(friendId);
+                return (
+                  <Pressable onPress={() => toggleInvitee(friendId)} style={styles.friendRow}>
+                    <Avatar user={item} size={46} />
+                    <View style={{ flex: 1 }}><Text style={styles.friendName}>{displayName(item)}</Text><Text style={styles.friendEmail}>{item.email}</Text></View>
+                    <View style={[styles.checkbox, selected && styles.checkboxSelected]}>{selected ? <Text style={styles.check}>✓</Text> : null}</View>
+                  </Pressable>
+                );
+              }}
+            />
+            <Pressable disabled={!selectedInvitees.length || inviting} onPress={invite} style={[styles.inviteButton, (!selectedInvitees.length || inviting) && styles.disabled]}>
+              <Text style={styles.inviteButtonText}>{inviting ? 'Inviting…' : `Add ${selectedInvitees.length || ''} participant${selectedInvitees.length === 1 ? '' : 's'}`}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
+  );
 }
-function Control({ icon: Icon, onPress, active }: { icon: React.ElementType; onPress: () => void; active: boolean }) { return <Pressable onPress={onPress} style={[styles.control, !active && styles.inactive]}><Icon color="#fff" size={24} /></Pressable>; }
-const styles = StyleSheet.create({ root: { flex: 1, backgroundColor: '#050816' }, stage: { flex: 1, position: 'relative', overflow: 'hidden' }, remote: { ...StyleSheet.absoluteFill }, waiting: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 30 }, waitingTitle: { color: '#fff', fontSize: 24, fontWeight: '900', textAlign: 'center' }, room: { color: '#94A3B8', marginTop: 12 }, share: { flexDirection: 'row', gap: 8, backgroundColor: 'rgba(255,255,255,.14)', paddingHorizontal: 18, paddingVertical: 12, borderRadius: 15, marginTop: 22 }, shareText: { color: '#fff', fontWeight: '800' }, local: { position: 'absolute', width: 120, height: 170, right: 16, top: 22, borderRadius: 18, overflow: 'hidden', backgroundColor: '#111827' }, statusPill: { position: 'absolute', left: 16, top: 22, backgroundColor: 'rgba(5,8,22,.72)', borderRadius: 99, paddingHorizontal: 12, paddingVertical: 8 }, statusText: { color: '#fff', fontSize: 12, fontWeight: '800' }, controls: { minHeight: 110, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 13, paddingHorizontal: 14, backgroundColor: '#0B1026' }, control: { width: 58, height: 58, borderRadius: 22, backgroundColor: '#28304D', alignItems: 'center', justifyContent: 'center' }, inactive: { backgroundColor: '#4B5563' }, hangup: { backgroundColor: colors.danger } });
+
+function Control({ icon: Icon, onPress, active, label }: { icon: React.ElementType; onPress: () => void; active: boolean; label: string }) {
+  return <View style={styles.controlBlock}><Pressable accessibilityLabel={label} onPress={onPress} style={[styles.control, !active && styles.inactive]}><Icon color="#fff" size={24} /></Pressable><Text style={styles.controlLabel}>{label}</Text></View>;
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: '#050816' },
+  topBar: { minHeight: 76, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#0B1026' },
+  callName: { color: '#fff', fontSize: 19, fontWeight: '900' },
+  callMeta: { color: '#94A3B8', fontSize: 12, marginTop: 4 },
+  topAction: { width: 44, height: 44, borderRadius: 18, backgroundColor: '#28304D', alignItems: 'center', justifyContent: 'center' },
+  stage: { flex: 1, position: 'relative', overflow: 'hidden' },
+  videoGrid: { flexGrow: 1, padding: 6 },
+  remoteTile: { flex: 1, minHeight: 250, margin: 4, borderRadius: 18, overflow: 'hidden', backgroundColor: '#111827' },
+  remoteVideo: { ...StyleSheet.absoluteFillObject },
+  participantLabel: { position: 'absolute', left: 10, bottom: 10, color: '#fff', backgroundColor: 'rgba(5,8,22,.68)', borderRadius: 10, paddingHorizontal: 9, paddingVertical: 5, maxWidth: '80%', fontSize: 11, fontWeight: '800' },
+  audioStage: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 30 },
+  avatarGlow: { padding: 10, borderRadius: 90, backgroundColor: 'rgba(48,87,213,.25)', borderWidth: 2, borderColor: 'rgba(255,255,255,.13)' },
+  waitingTitle: { color: '#fff', fontSize: 24, fontWeight: '900', textAlign: 'center', marginTop: 24 },
+  waitingSubtitle: { color: '#94A3B8', marginTop: 9 },
+  local: { position: 'absolute', width: 112, height: 158, right: 14, top: 14, borderRadius: 18, overflow: 'hidden', backgroundColor: '#111827' },
+  controls: { minHeight: 120, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 17, paddingHorizontal: 12, backgroundColor: '#0B1026' },
+  controlBlock: { alignItems: 'center', gap: 7 },
+  control: { width: 56, height: 56, borderRadius: 22, backgroundColor: '#28304D', alignItems: 'center', justifyContent: 'center' },
+  controlLabel: { color: '#CBD5E1', fontSize: 10, fontWeight: '700' },
+  inactive: { backgroundColor: '#4B5563' },
+  hangup: { backgroundColor: colors.danger },
+  modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(2,6,23,.58)' },
+  inviteSheet: { height: '72%', backgroundColor: '#fff', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 18 },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  sheetTitle: { color: colors.text, fontSize: 21, fontWeight: '900' },
+  sheetSubtitle: { color: colors.muted, fontSize: 12, marginTop: 3 },
+  closeButton: { width: 40, height: 40, borderRadius: 15, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center' },
+  friendRow: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
+  friendName: { color: colors.text, fontSize: 14, fontWeight: '900' },
+  friendEmail: { color: colors.muted, fontSize: 11, marginTop: 3 },
+  checkbox: { width: 25, height: 25, borderRadius: 9, borderWidth: 2, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  checkboxSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
+  check: { color: '#fff', fontWeight: '900' },
+  inviteButton: { minHeight: 52, borderRadius: 17, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', marginTop: 12 },
+  inviteButtonText: { color: '#fff', fontSize: 14, fontWeight: '900' },
+  disabled: { opacity: 0.45 },
+  emptyFriends: { color: colors.muted, textAlign: 'center', padding: 30, lineHeight: 20 },
+});
