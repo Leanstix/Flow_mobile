@@ -8,6 +8,7 @@ import {
   deleteGeneratedVideo,
   exportTrimmedVideo,
   normalizeLocalFileUri,
+  normalizeNativeInputPath,
 } from '@/lib/video-export';
 
 const mockedTrim = trim as jest.MockedFunction<typeof trim>;
@@ -35,7 +36,7 @@ describe('client-side video export', () => {
     });
 
     expect(mockedTrim).toHaveBeenCalledWith(
-      'file:///storage/emulated/0/DCIM/source.mp4',
+      '/storage/emulated/0/DCIM/source.mp4',
       expect.objectContaining({
         startTime: 20_000,
         endTime: 80_000,
@@ -74,7 +75,9 @@ describe('client-side video export', () => {
     expect(mockedDelete).toHaveBeenCalledWith('/tmp/too-long.mp4');
   });
 
-  it('normalizes native paths and safely cleans generated files', async () => {
+  it('normalizes picker input, upload output and safely cleans generated files', async () => {
+    expect(normalizeNativeInputPath('file:///storage/My%20Videos/source.mp4')).toBe('/storage/My Videos/source.mp4');
+    expect(normalizeNativeInputPath('content://picker/video')).toBe('content://picker/video');
     expect(normalizeLocalFileUri('/tmp/video.mp4')).toBe('file:///tmp/video.mp4');
     expect(normalizeLocalFileUri('content://picker/video')).toBe('content://picker/video');
     await expect(deleteGeneratedVideo('/tmp/video.mp4')).resolves.toBe(true);
