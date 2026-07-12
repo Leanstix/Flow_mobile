@@ -14,6 +14,12 @@ export function normalizeLocalFileUri(path: string) {
   return `file://${path}`;
 }
 
+export function normalizeNativeInputPath(uri: string) {
+  if (!uri) throw new Error('Choose a video before trimming.');
+  if (uri.startsWith('file://')) return decodeURIComponent(uri.slice('file://'.length));
+  return uri;
+}
+
 export async function exportTrimmedVideo({
   sourceUri,
   startSeconds,
@@ -35,7 +41,7 @@ export async function exportTrimmedVideo({
     throw new Error('The final mobile video cannot exceed 3 minutes.');
   }
 
-  const result = await trim(sourceUri, {
+  const result = await trim(normalizeNativeInputPath(sourceUri), {
     startTime: Math.round(startSeconds * 1000),
     endTime: Math.round(endSeconds * 1000),
     outputExt: 'mp4',
