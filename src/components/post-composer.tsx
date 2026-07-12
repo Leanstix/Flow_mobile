@@ -29,6 +29,9 @@ type SelectedMedia = NativeUpload & {
   kind: 'image' | 'video';
   durationSeconds?: number;
   sourceUri?: string;
+  sourceDurationSeconds?: number;
+  trimStartSeconds?: number;
+  trimEndSeconds?: number;
   generatedPath?: string;
 };
 
@@ -318,6 +321,9 @@ export function PostComposer() {
         kind: 'video',
         durationSeconds: exported.durationSeconds,
         sourceUri: trimming.sourceUri,
+        sourceDurationSeconds: trimming.sourceDurationSeconds,
+        trimStartSeconds: startSeconds,
+        trimEndSeconds: endSeconds,
         generatedPath: exported.generatedPath,
       }]);
       setTrimming(null);
@@ -329,13 +335,15 @@ export function PostComposer() {
   };
 
   const editExportedVideo = (item: SelectedMedia) => {
-    if (item.kind !== 'video' || !item.sourceUri || !item.durationSeconds) return;
+    if (item.kind !== 'video' || !item.sourceUri) return;
+    const sourceDurationSeconds = item.sourceDurationSeconds || item.durationSeconds || 0;
+    if (!sourceDurationSeconds) return;
     setTrimming({
       ...item,
       sourceUri: item.sourceUri,
-      sourceDurationSeconds: item.durationSeconds,
-      initialStartSeconds: 0,
-      initialEndSeconds: Math.min(item.durationSeconds, MAX_VIDEO_SECONDS),
+      sourceDurationSeconds,
+      initialStartSeconds: item.trimStartSeconds || 0,
+      initialEndSeconds: item.trimEndSeconds || Math.min(sourceDurationSeconds, MAX_VIDEO_SECONDS),
     });
   };
 
