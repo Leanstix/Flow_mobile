@@ -37,11 +37,12 @@ export async function resetPassword(uid: string, token: string, password: string
 export async function getFeedPosts(page = 1) { return (await api.get<Paginated<Post>>('/posts/all-feed/', { params: { page, limit: 10 } })).data; }
 export async function getFriendsFeed() { return (await api.get<Post[]>('/posts/feed/')).data; }
 export async function getPosts() { return (await api.get<Post[]>('/posts/')).data; }
-export async function createPost(content: string) { return (await api.post<Post>('/posts/', { content })).data; }
-export async function createPostWithMedia(content: string, files: NativeUpload[], metadata: PostMediaMetadata[] = []) {
+export async function createPost(content: string, mentionUserIds: number[] = []) { return (await api.post<Post>('/posts/', { content, mention_user_ids: mentionUserIds })).data; }
+export async function createPostWithMedia(content: string, files: NativeUpload[], metadata: PostMediaMetadata[] = [], mentionUserIds: number[] = []) {
   const form = new FormData();
   form.append('content', content);
   form.append('platform', 'mobile');
+  form.append('mention_user_ids', JSON.stringify(mentionUserIds));
   files.forEach((file) => form.append('media', file as any));
   if (metadata.length) form.append('media_metadata', JSON.stringify(metadata));
   return (await api.post<Post>('/posts/', form)).data;
@@ -56,6 +57,7 @@ export async function fetchCommentReplies(id: number) { return (await api.get<Pa
 export async function replyToComment(id: number, content: string) { return (await api.post<Comment>(`/posts/comments/${id}/reply/`, { content })).data; }
 export async function searchHashtags(q = '') { return (await api.get<{ name: string; posts_count: number }[]>('/posts/hashtags/', { params: { q: q.replace(/^#/, '') } })).data; }
 export async function fetchHashtagPosts(tag: string, page = 1) { return (await api.get<Paginated<Post>>(`/posts/hashtags/${encodeURIComponent(tag.replace(/^#/, ''))}/`, { params: { page, limit: 10 } })).data; }
+export async function searchMentionUsers(q = '') { return (await api.get<User[]>('/requests/search/', { params: { q: q.replace(/^@/, ''), context: 'mention' } })).data; }
 export async function searchUsers(q: string) { return (await api.get<User[]>('/requests/search/', { params: { q: q.replace(/^@/, '') } })).data; }
 export async function searchPosts(q: string) { return (await api.get<Paginated<Post>>('/posts/search/not-by-user/', { params: { q } })).data; }
 export async function sendFriendRequest(to_user_id: number) { return (await api.post('/requests/friend-requests/', { to_user_id })).data; }

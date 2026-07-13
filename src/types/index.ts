@@ -16,6 +16,8 @@ export type User = {
   profile_picture?: string | null;
   is_staff?: boolean;
   is_superuser?: boolean;
+  is_friends?: boolean;
+  conversation_id?: number | null;
 };
 
 export type Session = { access: string; refresh: string; user: User };

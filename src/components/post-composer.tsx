@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -16,6 +18,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { Avatar } from './avatar';
 import { CachedImage } from './media';
+import { MentionInput } from './mention-input';
 import { Card } from './ui';
 import { createPostWithMedia, type NativeUpload, type PostMediaMetadata } from '@/lib/api';
 import { deleteGeneratedVideo, exportTrimmedVideo } from '@/lib/video-export';
@@ -130,92 +133,99 @@ function VideoTrimModal({
       presentationStyle="pageSheet"
       visible
     >
-      <View style={trimStyles.root}>
-        <View style={trimStyles.header}>
-          <View>
-            <Text style={trimStyles.title}>Edit video first</Text>
-            <Text style={trimStyles.subtitle}>
-              Flow exports the final clip on this device before uploading it.
-            </Text>
-          </View>
-          <Pressable disabled={exporting} onPress={onClose} style={trimStyles.close}>
-            <X color={colors.text} size={20} />
-          </Pressable>
-        </View>
-
-        <VideoView nativeControls player={player} style={trimStyles.video} />
-
-        <View style={trimStyles.rangeCard}>
-          <Text style={trimStyles.rangeLabel}>
-            Final clip: {formatSeconds(start)} – {formatSeconds(end)} ({formatSeconds(range)})
-          </Text>
-          <View style={trimStyles.controlRow}>
-            <Text style={trimStyles.controlLabel}>Start</Text>
-            <Pressable disabled={exporting} onPress={() => changeStart(start - 5)} style={trimStyles.step}>
-              <Text style={trimStyles.stepText}>−5s</Text>
-            </Pressable>
-            <TextInput
-              editable={!exporting}
-              keyboardType="decimal-pad"
-              onChangeText={(value) => changeStart(Number(value) || 0)}
-              style={trimStyles.number}
-              value={String(Math.round(start))}
-            />
-            <Pressable disabled={exporting} onPress={() => changeStart(start + 5)} style={trimStyles.step}>
-              <Text style={trimStyles.stepText}>+5s</Text>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={trimStyles.root}>
+        <ScrollView
+          automaticallyAdjustKeyboardInsets
+          contentContainerStyle={trimStyles.content}
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={trimStyles.header}>
+            <View style={trimStyles.headerCopy}>
+              <Text style={trimStyles.title}>Edit video first</Text>
+              <Text style={trimStyles.subtitle}>
+                Flow exports the final clip on this device before uploading it.
+              </Text>
+            </View>
+            <Pressable disabled={exporting} onPress={onClose} style={trimStyles.close}>
+              <X color={colors.text} size={20} />
             </Pressable>
           </View>
-          <View style={trimStyles.controlRow}>
-            <Text style={trimStyles.controlLabel}>End</Text>
-            <Pressable disabled={exporting} onPress={() => changeEnd(end - 5)} style={trimStyles.step}>
-              <Text style={trimStyles.stepText}>−5s</Text>
+
+          <VideoView nativeControls player={player} style={trimStyles.video} />
+
+          <View style={trimStyles.rangeCard}>
+            <Text style={trimStyles.rangeLabel}>
+              Final clip: {formatSeconds(start)} – {formatSeconds(end)} ({formatSeconds(range)})
+            </Text>
+            <View style={trimStyles.controlRow}>
+              <Text style={trimStyles.controlLabel}>Start</Text>
+              <Pressable disabled={exporting} onPress={() => changeStart(start - 5)} style={trimStyles.step}>
+                <Text style={trimStyles.stepText}>−5s</Text>
+              </Pressable>
+              <TextInput
+                editable={!exporting}
+                keyboardType="decimal-pad"
+                onChangeText={(value) => changeStart(Number(value) || 0)}
+                style={trimStyles.number}
+                value={String(Math.round(start))}
+              />
+              <Pressable disabled={exporting} onPress={() => changeStart(start + 5)} style={trimStyles.step}>
+                <Text style={trimStyles.stepText}>+5s</Text>
+              </Pressable>
+            </View>
+            <View style={trimStyles.controlRow}>
+              <Text style={trimStyles.controlLabel}>End</Text>
+              <Pressable disabled={exporting} onPress={() => changeEnd(end - 5)} style={trimStyles.step}>
+                <Text style={trimStyles.stepText}>−5s</Text>
+              </Pressable>
+              <TextInput
+                editable={!exporting}
+                keyboardType="decimal-pad"
+                onChangeText={(value) => changeEnd(Number(value) || start + 1)}
+                style={trimStyles.number}
+                value={String(Math.round(end))}
+              />
+              <Pressable disabled={exporting} onPress={() => changeEnd(end + 5)} style={trimStyles.step}>
+                <Text style={trimStyles.stepText}>+5s</Text>
+              </Pressable>
+            </View>
+            {!valid ? (
+              <Text style={trimStyles.error}>
+                The final clip must be between 1 second and 3 minutes.
+              </Text>
+            ) : null}
+          </View>
+
+          <View style={trimStyles.notice}>
+            <Text style={trimStyles.noticeTitle}>Nothing has been uploaded yet</Text>
+            <Text style={trimStyles.noticeText}>
+              Trimming and precise re-encoding happen locally. Only the exported MP4 is sent when you publish.
+            </Text>
+          </View>
+
+          <View style={trimStyles.actions}>
+            <Pressable disabled={exporting} onPress={preview} style={trimStyles.secondary}>
+              <Play color={colors.primary} size={18} />
+              <Text style={trimStyles.secondaryText}>Preview range</Text>
             </Pressable>
-            <TextInput
-              editable={!exporting}
-              keyboardType="decimal-pad"
-              onChangeText={(value) => changeEnd(Number(value) || start + 1)}
-              style={trimStyles.number}
-              value={String(Math.round(end))}
-            />
-            <Pressable disabled={exporting} onPress={() => changeEnd(end + 5)} style={trimStyles.step}>
-              <Text style={trimStyles.stepText}>+5s</Text>
+            <Pressable
+              disabled={!valid || exporting}
+              onPress={() => void exportVideo()}
+              style={[trimStyles.primary, (!valid || exporting) && { opacity: 0.45 }]}
+            >
+              {exporting ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Scissors color="#fff" size={18} />
+              )}
+              <Text style={trimStyles.primaryText}>
+                {exporting ? 'Exporting on device…' : 'Export final video'}
+              </Text>
             </Pressable>
           </View>
-          {!valid ? (
-            <Text style={trimStyles.error}>
-              The final clip must be between 1 second and 3 minutes.
-            </Text>
-          ) : null}
-        </View>
-
-        <View style={trimStyles.notice}>
-          <Text style={trimStyles.noticeTitle}>Nothing has been uploaded yet</Text>
-          <Text style={trimStyles.noticeText}>
-            Trimming and precise re-encoding happen locally. Only the exported MP4 is sent when you publish.
-          </Text>
-        </View>
-
-        <View style={trimStyles.actions}>
-          <Pressable disabled={exporting} onPress={preview} style={trimStyles.secondary}>
-            <Play color={colors.primary} size={18} />
-            <Text style={trimStyles.secondaryText}>Preview range</Text>
-          </Pressable>
-          <Pressable
-            disabled={!valid || exporting}
-            onPress={() => void exportVideo()}
-            style={[trimStyles.primary, (!valid || exporting) && { opacity: 0.45 }]}
-          >
-            {exporting ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <Scissors color="#fff" size={18} />
-            )}
-            <Text style={trimStyles.primaryText}>
-              {exporting ? 'Exporting on device…' : 'Export final video'}
-            </Text>
-          </Pressable>
-        </View>
-      </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -225,6 +235,7 @@ export function PostComposer() {
   const client = useQueryClient();
   const generatedPaths = useRef(new Set<string>());
   const [content, setContent] = useState('');
+  const [mentionUserIds, setMentionUserIds] = useState<number[]>([]);
   const [media, setMedia] = useState<SelectedMedia[]>([]);
   const [trimming, setTrimming] = useState<EditableVideo | null>(null);
 
@@ -355,14 +366,15 @@ export function PostComposer() {
   );
 
   const create = useMutation({
-    mutationFn: () => createPostWithMedia(content.trim(), media, payload),
+    mutationFn: () => createPostWithMedia(content.trim(), media, payload, mentionUserIds),
     onSuccess: async () => {
       const uploadedMedia = media;
       setContent('');
+      setMentionUserIds([]);
       setMedia([]);
       await cleanGeneratedMedia(uploadedMedia);
       client.invalidateQueries({ queryKey: ['feed'] });
-      showSuccess('Published', 'Only the final edited video was uploaded to Flow.');
+      showSuccess('Published', 'Your post is now live in the campus feed.');
     },
     onError: (error) => showApiError(error, 'Could not publish'),
   });
@@ -373,10 +385,11 @@ export function PostComposer() {
     <Card style={styles.card}>
       <View style={styles.row}>
         <Avatar user={user} />
-        <TextInput
+        <MentionInput
           maxLength={10000}
           multiline
           onChangeText={setContent}
+          onMentionUserIdsChange={setMentionUserIds}
           placeholder="Share an update, #topic or @mention…"
           placeholderTextColor={colors.muted}
           style={styles.input}
@@ -385,7 +398,7 @@ export function PostComposer() {
       </View>
 
       {media.length ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.previewRow}>
+        <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} style={styles.previewRow}>
           {media.map((item) => (
             item.kind === 'image' ? (
               <CachedImage key={item.uri} source={item.uri} style={styles.preview} />
@@ -435,7 +448,7 @@ export function PostComposer() {
           ) : (
             <Send color="#fff" size={17} />
           )}
-          <Text style={styles.publishText}>{create.isPending ? 'Uploading final file…' : 'Post'}</Text>
+          <Text style={styles.publishText}>{create.isPending ? 'Uploading…' : 'Post'}</Text>
         </Pressable>
       </View>
 
@@ -451,8 +464,8 @@ export function PostComposer() {
 }
 
 const styles = StyleSheet.create({
-  card: { gap: 14 },
-  row: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
+  card: { gap: 14, zIndex: 20 },
+  row: { flexDirection: 'row', gap: 12, alignItems: 'flex-start', zIndex: 20 },
   input: {
     flex: 1,
     minHeight: 76,
@@ -511,8 +524,10 @@ const styles = StyleSheet.create({
 });
 
 const trimStyles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.background, padding: spacing.lg },
+  root: { flex: 1, backgroundColor: colors.background },
+  content: { flexGrow: 1, padding: spacing.lg, paddingBottom: 32 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 14 },
+  headerCopy: { flex: 1 },
   title: { color: colors.text, fontSize: 26, fontWeight: '900' },
   subtitle: { color: colors.muted, marginTop: 3, lineHeight: 19, maxWidth: 280 },
   close: {
@@ -570,7 +585,7 @@ const trimStyles = StyleSheet.create({
   },
   noticeTitle: { color: '#047857', fontWeight: '900', fontSize: 13 },
   noticeText: { color: '#047857', marginTop: 4, lineHeight: 18, fontSize: 12 },
-  actions: { marginTop: 'auto', flexDirection: 'row', gap: 10 },
+  actions: { marginTop: 22, flexDirection: 'row', gap: 10 },
   secondary: {
     flex: 1,
     minHeight: 50,

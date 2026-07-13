@@ -1,11 +1,41 @@
 import React from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleProp, StyleSheet, Text, TextInput, TextInputProps, View, ViewStyle } from 'react-native';
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  ScrollViewProps,
+  StyleProp,
+  StyleSheet,
+  Text,
+  TextInput,
+  TextInputProps,
+  View,
+  ViewStyle,
+} from 'react-native';
 import { AlertCircle, CheckCircle2, Info, TriangleAlert } from 'lucide-react-native';
+
 import { colors, radii, spacing } from '@/theme';
 import { useUIStore } from '@/state/ui-store';
 
-export function Screen({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
-  return <View style={[styles.screen, style]}>{children}</View>;
+export function Screen({ children, style, keyboardVerticalOffset = 0 }: { children: React.ReactNode; style?: StyleProp<ViewStyle>; keyboardVerticalOffset?: number }) {
+  return <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={keyboardVerticalOffset} style={[styles.screen, style]}>{children}</KeyboardAvoidingView>;
+}
+
+export function KeyboardAwareScrollView({ contentContainerStyle, children, ...props }: ScrollViewProps) {
+  return (
+    <ScrollView
+      automaticallyAdjustKeyboardInsets
+      contentContainerStyle={[styles.keyboardScrollContent, contentContainerStyle]}
+      keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+      keyboardShouldPersistTaps="handled"
+      {...props}
+    >
+      {children}
+    </ScrollView>
+  );
 }
 
 export function Button({ title, onPress, loading, variant = 'primary', disabled, testID }: { title: string; onPress?: () => void; loading?: boolean; variant?: 'primary' | 'secondary' | 'danger'; disabled?: boolean; testID?: string }) {
@@ -29,6 +59,7 @@ export function FeedbackModal() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
+  keyboardScrollContent: { flexGrow: 1 },
   button: { minHeight: 48, borderRadius: radii.md, paddingHorizontal: spacing.xl, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
   primary: { backgroundColor: colors.primary }, secondary: { backgroundColor: '#fff', borderWidth: 1, borderColor: colors.border }, danger: { backgroundColor: colors.danger },
   buttonText: { color: '#fff' }, secondaryText: { color: colors.text }, buttonLabel: { fontSize: 15, fontWeight: '700' }, disabled: { opacity: .55 }, pressed: { opacity: .82 },

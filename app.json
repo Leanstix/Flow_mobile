@@ -26,6 +26,7 @@
     },
     "android": {
       "package": "com.leanstix.flow",
+      "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",

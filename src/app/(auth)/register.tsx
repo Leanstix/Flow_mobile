@@ -1,10 +1,11 @@
 import React from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { router } from 'expo-router';
-import { Button, Field } from '@/components/ui';
+
+import { Button, Field, KeyboardAwareScrollView, Screen } from '@/components/ui';
 import { colors, spacing } from '@/theme';
 import { signUp } from '@/lib/api';
 import { showApiError, showSuccess } from '@/state/ui-store';
@@ -18,6 +19,7 @@ export default function RegisterScreen() {
     try { await signUp({ ...values, email: values.email.trim().toLowerCase() }); showSuccess('Account created', 'Use the activation link provided by the backend, then sign in.'); router.replace('/(auth)/login'); }
     catch (error) { showApiError(error, 'Could not create account'); }
   };
-  return <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.root}><ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled"><Text style={styles.kicker}>JOIN FLOW</Text><Text style={styles.title}>Create your student account</Text><Text style={styles.subtitle}>Use the same university identity your classmates know.</Text><Controller control={control} name="email" render={({ field }) => <Field autoCapitalize="none" keyboardType="email-address" error={errors.email?.message} label="Email" onBlur={field.onBlur} onChangeText={field.onChange} value={field.value} />} /><Controller control={control} name="university_id" render={({ field }) => <Field autoCapitalize="characters" error={errors.university_id?.message} label="University ID" onBlur={field.onBlur} onChangeText={field.onChange} value={field.value} />} /><Controller control={control} name="password" render={({ field }) => <Field secureTextEntry error={errors.password?.message} label="Password" onBlur={field.onBlur} onChangeText={field.onChange} value={field.value} />} /><Controller control={control} name="confirm" render={({ field }) => <Field secureTextEntry error={errors.confirm?.message} label="Confirm password" onBlur={field.onBlur} onChangeText={field.onChange} value={field.value} />} /><Button loading={isSubmitting} onPress={handleSubmit(submit)} title="Create account" /><Button onPress={() => router.back()} title="Back to sign in" variant="secondary" /></ScrollView></KeyboardAvoidingView>;
+  return <Screen><KeyboardAwareScrollView contentContainerStyle={styles.content}><Text style={styles.kicker}>JOIN FLOW</Text><Text style={styles.title}>Create your student account</Text><Text style={styles.subtitle}>Use the same university identity your classmates know.</Text><Controller control={control} name="email" render={({ field }) => <Field autoCapitalize="none" keyboardType="email-address" error={errors.email?.message} label="Email" onBlur={field.onBlur} onChangeText={field.onChange} value={field.value} />} /><Controller control={control} name="university_id" render={({ field }) => <Field autoCapitalize="characters" error={errors.university_id?.message} label="University ID" onBlur={field.onBlur} onChangeText={field.onChange} value={field.value} />} /><Controller control={control} name="password" render={({ field }) => <Field secureTextEntry error={errors.password?.message} label="Password" onBlur={field.onBlur} onChangeText={field.onChange} value={field.value} />} /><Controller control={control} name="confirm" render={({ field }) => <Field secureTextEntry error={errors.confirm?.message} label="Confirm password" onBlur={field.onBlur} onChangeText={field.onChange} value={field.value} />} /><Button loading={isSubmitting} onPress={handleSubmit(submit)} title="Create account" /><Button onPress={() => router.back()} title="Back to sign in" variant="secondary" /></KeyboardAwareScrollView></Screen>;
 }
-const styles = StyleSheet.create({ root: { flex: 1, backgroundColor: colors.background }, content: { flexGrow: 1, padding: spacing.xl, paddingTop: 70, gap: 18 }, kicker: { color: colors.primary, fontWeight: '900', letterSpacing: 1.8 }, title: { color: colors.text, fontSize: 30, lineHeight: 36, fontWeight: '900' }, subtitle: { color: colors.muted, lineHeight: 22, marginBottom: 10 } });
+
+const styles = StyleSheet.create({ content: { flexGrow: 1, padding: spacing.xl, paddingTop: 70, paddingBottom: 48, gap: 18 }, kicker: { color: colors.primary, fontWeight: '900', letterSpacing: 1.8 }, title: { color: colors.text, fontSize: 30, lineHeight: 36, fontWeight: '900' }, subtitle: { color: colors.muted, lineHeight: 22, marginBottom: 10 } });
