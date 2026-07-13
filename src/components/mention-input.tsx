@@ -28,27 +28,15 @@ type Props = Omit<TextInputProps, 'value' | 'onChangeText' | 'style'> & {
 
 export function MentionInput({ value, onChangeText, onMentionUserIdsChange, style, ...props }: Props) {
   const inputRef = useRef<TextInput>(null);
-  const valueRef = useRef(value);
   const [selection, setSelection] = useState({ start: value.length, end: value.length });
   const [active, setActive] = useState<ActiveMention | null>(null);
   const [selectedUsers, setSelectedUsers] = useState<User[]>([]);
   const [debouncedQuery, setDebouncedQuery] = useState('');
 
-  valueRef.current = value;
-
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(active?.query || ''), 180);
     return () => clearTimeout(timer);
   }, [active?.query]);
-
-  useEffect(() => {
-    const tokens = mentionTokens(value);
-    setSelectedUsers((current) => {
-      const next = current.filter((user) => user.user_name && tokens.has(user.user_name.toLowerCase()));
-      onMentionUserIdsChange(validMentionIds(value, next));
-      return next.length === current.length ? current : next;
-    });
-  }, [onMentionUserIdsChange, value]);
 
   const suggestionsQuery = useQuery({
     queryKey: ['mention-suggestions', debouncedQuery],
@@ -65,7 +53,10 @@ export function MentionInput({ value, onChangeText, onMentionUserIdsChange, styl
   const handleChange = (next: string) => {
     const delta = next.length - value.length;
     const cursor = Math.max(0, Math.min(next.length, selection.end + delta));
-    valueRef.current = next;
+    const tokens = mentionTokens(next);
+    const nextUsers = selectedUsers.filter((user) => user.user_name && tokens.has(user.user_name.toLowerCase()));
+    if (nextUsers.length !== selectedUsers.length) setSelectedUsers(nextUsers);
+    onMentionUserIdsChange(validMentionIds(next, nextUsers));
     setSelection({ start: cursor, end: cursor });
     updateActiveMention(next, cursor);
     onChangeText(next);
@@ -73,9 +64,8 @@ export function MentionInput({ value, onChangeText, onMentionUserIdsChange, styl
 
   const selectUser = (user: User) => {
     if (!active || !user.user_name) return;
-    const inserted = insertMention(valueRef.current, active, user.user_name);
+    const inserted = insertMention(value, active, user.user_name);
     const nextUsers = mergeMentionUser(selectedUsers, user);
-    valueRef.current = inserted.value;
     setSelectedUsers(nextUsers);
     onMentionUserIdsChange(validMentionIds(inserted.value, nextUsers));
     onChangeText(inserted.value);
@@ -92,7 +82,7 @@ export function MentionInput({ value, onChangeText, onMentionUserIdsChange, styl
         onSelectionChange={(event) => {
           const nextSelection = event.nativeEvent.selection;
           setSelection(nextSelection);
-          updateActiveMention(valueRef.current, nextSelection.end);
+          updateActiveMention(value, nextSelection.end);
           props.onSelectionChange?.(event);
         }}
         ref={inputRef}
