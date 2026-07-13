@@ -14,8 +14,9 @@ export function getActiveMention(value: string, cursor = value.length): ActiveMe
 }
 
 export function insertMention(value: string, active: ActiveMention, username: string) {
-  const replacement = `@${username} `;
-  const nextValue = `${value.slice(0, active.start)}${replacement}${value.slice(active.end)}`;
+  const suffix = value.slice(active.end);
+  const replacement = `@${username}${suffix.startsWith(' ') ? '' : ' '}`;
+  const nextValue = `${value.slice(0, active.start)}${replacement}${suffix}`;
   return { value: nextValue, cursor: active.start + replacement.length };
 }
 
