@@ -22,6 +22,7 @@ import { MentionInput } from './mention-input';
 import { Card } from './ui';
 import { createPostWithMedia, type NativeUpload, type PostMediaMetadata } from '@/lib/api';
 import { deleteGeneratedVideo, exportTrimmedVideo } from '@/lib/video-export';
+import { configureAudibleVideoPlayer } from '@/lib/video-playback';
 import { colors, spacing } from '@/theme';
 import { useAuthStore } from '@/state/auth-store';
 import { showApiError, showSuccess } from '@/state/ui-store';
@@ -58,10 +59,10 @@ function formatSeconds(value: number) {
 function LocalVideoPreview({ uri }: { uri: string }) {
   const player = useVideoPlayer({ uri }, (instance) => {
     instance.loop = true;
-    instance.muted = true;
+    configureAudibleVideoPlayer(instance);
   });
 
-  return <VideoView nativeControls={false} player={player} style={styles.preview} />;
+  return <VideoView nativeControls player={player} style={styles.preview} />;
 }
 
 function VideoTrimModal({
@@ -81,6 +82,7 @@ function VideoTrimModal({
   const [exporting, setExporting] = useState(false);
   const player = useVideoPlayer({ uri: media.sourceUri }, (instance) => {
     instance.loop = false;
+    configureAudibleVideoPlayer(instance);
   });
   const range = end - start;
 

@@ -42,6 +42,7 @@ describe('client-side video export', () => {
         endTime: 80_000,
         enablePreciseTrimming: true,
         outputExt: 'mp4',
+        removeAudio: false,
       }),
     );
     expect(result.uri).toBe('file:///data/user/0/com.leanstix.flow/files/trimmed.mp4');
