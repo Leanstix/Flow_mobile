@@ -5,6 +5,7 @@ import { clearSession, getSessionSync, setAccessToken } from './session';
 const configured = process.env.EXPO_PUBLIC_API_URL || Constants.expoConfig?.extra?.apiUrl || 'http://10.0.2.2:8000/api';
 export const API_BASE_URL = String(configured).replace(/\/$/, '');
 export const API_ORIGIN = API_BASE_URL.replace(/\/api$/, '');
+export const API_REQUEST_TIMEOUT_MS = 60_000;
 
 export class ApiError extends Error {
   status: number;
@@ -28,7 +29,7 @@ export function normalizeApiError(error: unknown) {
 let sessionExpiredHandler: (() => void) | null = null;
 export function setSessionExpiredHandler(handler: (() => void) | null) { sessionExpiredHandler = handler; }
 
-const api = axios.create({ baseURL: API_BASE_URL, timeout: 20000, headers: { Accept: 'application/json' } });
+const api = axios.create({ baseURL: API_BASE_URL, timeout: API_REQUEST_TIMEOUT_MS, headers: { Accept: 'application/json' } });
 
 api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const access = getSessionSync()?.access;
@@ -41,7 +42,7 @@ async function refreshAccessToken() {
   if (refreshPromise) return refreshPromise;
   const refresh = getSessionSync()?.refresh;
   if (!refresh) throw new ApiError('Your session has expired.', 401);
-  refreshPromise = axios.post(`${API_BASE_URL}/token/generate-access-token/`, { refresh }, { timeout: 15000 })
+  refreshPromise = axios.post(`${API_BASE_URL}/token/generate-access-token/`, { refresh }, { timeout: API_REQUEST_TIMEOUT_MS })
     .then(async ({ data }) => { if (!data?.access) throw new ApiError('Invalid refresh response.', 401); await setAccessToken(data.access); return data.access as string; })
     .finally(() => { refreshPromise = null; });
   return refreshPromise;

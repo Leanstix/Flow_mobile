@@ -1,6 +1,11 @@
-import { ApiError, normalizeApiError } from '@/lib/http';
+import api, { API_REQUEST_TIMEOUT_MS, ApiError, normalizeApiError } from '@/lib/http';
 
 describe('API error normalization', () => {
+  it('allows slow connections more than 20 seconds to complete', () => {
+    expect(API_REQUEST_TIMEOUT_MS).toBe(60_000);
+    expect(api.defaults.timeout).toBe(API_REQUEST_TIMEOUT_MS);
+  });
+
   it('preserves API errors', () => {
     const error = new ApiError('No access', 403);
     expect(normalizeApiError(error)).toBe(error);
