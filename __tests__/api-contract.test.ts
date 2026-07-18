@@ -69,6 +69,7 @@ import {
   reportPost,
   repost,
   saveMarketplaceListing,
+  searchExplorePosts,
   searchPosts,
   searchUsers,
   sendFriendRequest,
@@ -130,6 +131,17 @@ describe('backend contract', () => {
     expect(mockedApi.post).toHaveBeenCalledWith('/posts/4/comment/', { content: 'hello' });
     expect(mockedApi.post).toHaveBeenCalledWith('/posts/comments/9/reply/', { content: 'reply' });
     expect(mockedApi.delete).toHaveBeenCalledWith('/posts/4/delete/');
+  });
+
+  it('uses the inclusive hashtag endpoint for Explore hashtag post searches', async () => {
+    await searchExplorePosts('  #campus  ', 2);
+    expect(mockedApi.get).toHaveBeenCalledWith('/posts/hashtags/campus/', { params: { page: 2, limit: 10 } });
+    expect(mockedApi.get).not.toHaveBeenCalledWith('/posts/search/not-by-user/', expect.anything());
+  });
+
+  it('keeps ordinary Explore post searches on the discovery endpoint', async () => {
+    await searchExplorePosts('  campus update  ');
+    expect(mockedApi.get).toHaveBeenCalledWith('/posts/search/not-by-user/', { params: { q: 'campus update' } });
   });
 
   it('uses connection, message lifecycle and notification routes', async () => {

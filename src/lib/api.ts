@@ -60,6 +60,11 @@ export async function fetchHashtagPosts(tag: string, page = 1) { return (await a
 export async function searchMentionUsers(q = '') { return (await api.get<User[]>('/requests/search/', { params: { q: q.replace(/^@/, ''), context: 'mention' } })).data; }
 export async function searchUsers(q: string) { return (await api.get<User[]>('/requests/search/', { params: { q: q.replace(/^@/, '') } })).data; }
 export async function searchPosts(q: string) { return (await api.get<Paginated<Post>>('/posts/search/not-by-user/', { params: { q } })).data; }
+export async function searchExplorePosts(q: string, page = 1) {
+  const term = q.trim();
+  if (term.startsWith('#')) return fetchHashtagPosts(term, page);
+  return (await api.get<Paginated<Post>>('/posts/search/not-by-user/', { params: { q: term } })).data;
+}
 export async function sendFriendRequest(to_user_id: number) { return (await api.post('/requests/friend-requests/', { to_user_id })).data; }
 export async function getFriendRequests() { return (await api.get<FriendRequest[]>('/requests/friend-requests/')).data; }
 export async function getFriends() { return (await api.get<Friend[]>('/requests/friends/')).data; }

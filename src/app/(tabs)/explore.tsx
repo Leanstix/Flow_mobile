@@ -4,7 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Hash, MessageCircle, Search, UserPlus } from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 
-import { createConversation, searchHashtags, searchPosts, searchUsers, sendFriendRequest, unwrapList } from '@/lib/api';
+import { createConversation, searchExplorePosts, searchHashtags, searchUsers, sendFriendRequest, unwrapList } from '@/lib/api';
 import { Avatar } from '@/components/avatar';
 import { Card } from '@/components/ui';
 import { PostCard } from '@/components/post-card';
@@ -27,7 +27,7 @@ export default function ExploreScreen() {
   const hashtagTerm = trimmed.replace(/^#/, '');
   const enabled = trimmed.length >= 2;
   const people = useQuery({ queryKey: ['search', 'people', peopleTerm], queryFn: () => searchUsers(peopleTerm), enabled: peopleTerm.length >= 2 && mode === 'people' });
-  const posts = useQuery({ queryKey: ['search', 'posts', trimmed], queryFn: () => searchPosts(trimmed), enabled: enabled && mode === 'posts' });
+  const posts = useQuery({ queryKey: ['search', 'posts', trimmed], queryFn: () => searchExplorePosts(trimmed), enabled: enabled && mode === 'posts' });
   const hashtags = useQuery({ queryKey: ['search', 'hashtags', hashtagTerm], queryFn: () => searchHashtags(hashtagTerm), enabled: mode === 'hashtags' });
   const request = useMutation({ mutationFn: sendFriendRequest, onSuccess: () => showSuccess('Request sent', 'They will see your Flow request.'), onError: (error) => showApiError(error, 'Could not send request') });
   const message = useMutation({ mutationFn: (id: number) => createConversation([id]), onSuccess: (conversation) => router.push({ pathname: '/conversation/[id]', params: { id: String(conversation.id), name: conversation.name } }), onError: (error) => showApiError(error, 'Could not start conversation') });
